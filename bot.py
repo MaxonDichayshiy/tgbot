@@ -1200,7 +1200,20 @@ async def main():
         )
     except Exception:
         pass
-    await dp.start_polling(bot)
+    vk_task = asyncio.create_task(run_vk())
+    try:
+        await dp.start_polling(bot)
+    finally:
+        vk_task.cancel()
+
+
+async def run_vk():
+    try:
+        from vk_bot import start_vk
+    except Exception:
+        log.exception("vk: не удалось подключить")
+        return
+    await start_vk()
 
 
 if __name__ == "__main__":
