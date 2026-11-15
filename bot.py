@@ -1,21 +1,26 @@
 import asyncio
+import base64
 import html
 import json
 import logging
 import os
+import random
 import re
 import time
+from contextlib import asynccontextmanager
 from pathlib import Path
+from urllib.parse import quote
+
+import aiohttp
 
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ChatAction, ParseMode
-from aiogram.filters import Command, CommandStart
+from aiogram.filters import Command, CommandObject, CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.types import BotCommand, CallbackQuery, InlineKeyboardButton, Message
-from aiogram.utils.keyboard import InlineKeyboardBuilder
+from aiogram.types import BotCommand, BufferedInputFile, Message
 from aiohttp import web
 from openai import (
     APIConnectionError,
@@ -32,12 +37,14 @@ BASE = Path(__file__).parent
 BOT_TOKEN = os.environ["BOT_TOKEN"]
 PORT = int(os.getenv("PORT", "8080"))
 ALLOWED = {int(x) for x in os.getenv("ALLOWED_USERS", "").split(",") if x.strip()}
-SHOW_PROVIDER = os.getenv("SHOW_PROVIDER", "1") == "1"
+SHOW_PROVIDER = os.getenv("SHOW_PROVIDER", "0") == "1"
 COMPACT_AT = int(os.getenv("COMPACT_AT", "3500"))  # ~токенов, после чего сжимаем историю
+CF_ACCOUNT = os.getenv("CF_ACCOUNT_ID", "")
+CF_TOKEN = os.getenv("CF_API_TOKEN", "")
+CF_MODEL = os.getenv("CF_IMAGE_MODEL", "@cf/black-forest-labs/flux-1-schnell")
 KEEP_LAST = 4  # сколько последних реплик оставлять дословно при сжатии
 
 SC = json.loads((BASE / "scenario.json").read_text(encoding="utf-8"))
-STEPS = SC["steps"]
 router = Router()
 
 
@@ -147,14 +154,14 @@ async def ask_llm(messages: list):
 
 
 # ================= контекст: сжатие вместо потери =================
-def build(summary: str, history: list) -> list:
-    sys = SC["system_prompt"]
+def build(summary: str, history: list, custom: str = "") -> list:
+    sys = custom or SC["system_prompt"]
     if summary:
         sys += "\n\nКраткое содержание предыдущего диалога:\n" + summary
     return [{"role": "system", "content": sys}] + history
 
 
-async def compact(summary: str, history: list):
+async def compact(summary: str, history: list, custom: str = ""):
     """Если контекст разросся — сжимаем старую часть в резюме (на любом доступном провайдере)."""
     if est_tokens(history) + len(summary) // 3 <= COMPACT_AT or len(history) <= KEEP_LAST:
         return summary, history
@@ -178,24 +185,61 @@ async def compact(summary: str, history: list):
     return summary, history  # не вышло — ничего не теряем, fit() подрежет при вызове
 
 
+
+# ================= генерация картинок =================
+async def gen_image(prompt: str):
+    """Возвращает (bytes, источник) или (None, текст_ошибки). Cloudflare -> Pollinations."""
+    errors = []
+    timeout = aiohttp.ClientTimeout(total=90)
+    async with aiohttp.ClientSession(timeout=timeout) as sess:
+        if CF_ACCOUNT and CF_TOKEN:
+            try:
+                url = f"https://api.cloudflare.com/client/v4/accounts/{CF_ACCOUNT}/ai/run/{CF_MODEL}"
+                async with sess.post(
+                    url,
+                    headers={"Authorization": f"Bearer {CF_TOKEN}"},
+                    json={"prompt": prompt, "steps": 6},
+                ) as r:
+                    if r.status == 200:
+                        data = await r.json()
+                        return base64.b64decode(data["result"]["image"]), "cloudflare"
+                    errors.append(f"cloudflare {r.status}")
+            except Exception as e:  # noqa
+                errors.append(f"cloudflare: {str(e)[:80]}")
+        try:
+            url = (
+                "https://image.pollinations.ai/prompt/" + quote(prompt[:900])
+                + f"?width=1024&height=1024&nologo=true&model=flux&seed={random.randint(1, 10**6)}"
+            )
+            async with sess.get(url) as r:
+                if r.status == 200 and r.content_type.startswith("image"):
+                    return await r.read(), "pollinations"
+                errors.append(f"pollinations {r.status}")
+        except Exception as e:  # noqa
+            errors.append(f"pollinations: {str(e)[:80]}")
+    return None, "; ".join(errors)
+
+
+async def to_english_prompt(text: str) -> str:
+    out, _ = await ask_llm(
+        [
+            {
+                "role": "system",
+                "content": "Преврати описание в короткий детальный промпт для генерации "
+                "изображения на английском. Верни только промпт, без кавычек.",
+            },
+            {"role": "user", "content": text},
+        ]
+    )
+    return (out or text).strip().strip('"')[:900]
+
 # ================= UI-хелперы =================
 class Flow(StatesGroup):
-    choice = State()
-    text = State()
-    chat = State()
-
-
-class Safe(dict):
-    def __missing__(self, k):
-        return ""
+    image = State()
 
 
 def esc(s) -> str:
     return html.escape(str(s), quote=False)
-
-
-def pbar(i: int, n: int) -> str:
-    return "▰" * i + "▱" * (n - i)
 
 
 def md_to_html(t: str) -> str:
@@ -220,41 +264,14 @@ def chunks(t: str, n: int = 3800):
         t = t[cut:].lstrip("\n")
 
 
-def kb_menu():
-    b = InlineKeyboardBuilder()
-    b.button(text="▶️ Начать", callback_data="go")
-    b.button(text="ℹ️ О боте", callback_data="about")
-    b.adjust(1)
-    return b.as_markup()
-
-
-def kb_after():
-    b = InlineKeyboardBuilder()
-    b.button(text="💬 Уточнить", callback_data="chat_hint")
-    b.button(text="🔄 Заново", callback_data="go")
-    b.button(text="🏠 Меню", callback_data="menu")
-    b.adjust(1, 2)
-    return b.as_markup()
-
-
-def kb_fail():
-    b = InlineKeyboardBuilder()
-    b.button(text="🔁 Повторить", callback_data="retry")
-    b.button(text="🏠 Меню", callback_data="menu")
-    b.adjust(2)
-    return b.as_markup()
-
-
-async def send_result(msg: Message, text: str, kb=None, provider: str = ""):
-    parts = list(chunks(text))
-    for i, p in enumerate(parts):
-        last = i == len(parts) - 1
-        foot_h = f"\n\n<i>⚙️ {esc(provider)}</i>" if last and provider and SHOW_PROVIDER else ""
-        foot_p = f"\n\n⚙️ {provider}" if last and provider and SHOW_PROVIDER else ""
+async def send_result(msg: Message, text: str, provider: str = ""):
+    for p in chunks(text):
+        foot_h = f"\n\n<i>⚙️ {esc(provider)}</i>" if provider and SHOW_PROVIDER else ""
+        foot_p = f"\n\n⚙️ {provider}" if provider and SHOW_PROVIDER else ""
         try:
-            await msg.answer(md_to_html(p) + foot_h, reply_markup=kb if last else None)
+            await msg.answer(md_to_html(p) + foot_h)
         except Exception:
-            await msg.answer(p + foot_p, reply_markup=kb if last else None, parse_mode=None)
+            await msg.answer(p + foot_p, parse_mode=None)
 
 
 def allowed(uid: int) -> bool:
@@ -263,182 +280,194 @@ def allowed(uid: int) -> bool:
 
 def fail_text() -> str:
     why = "\n".join(f"• {p.name}: {p.why or 'нет ответа'}" for p in PROVIDERS)
-    return "⚠️ Все нейросети сейчас недоступны.\n" + why[:800]
+    return "⚠️ Все нейросети сейчас недоступны. Попробуйте через пару минут.\n" + why[:800]
 
 
-# ================= сценарий =================
-async def ask_step(msg: Message, state: FSMContext, idx: int, edit: bool):
-    step = STEPS[idx]
-    text = (
-        f"<b>{esc(SC['title'])}</b>\n"
-        f"{pbar(idx, len(STEPS))}  {idx + 1}/{len(STEPS)}\n\n"
-        f"{esc(step['question'])}"
-    )
-    b = InlineKeyboardBuilder()
-    if step["type"] == "choice":
-        for i, o in enumerate(step["options"]):
-            b.button(text=o, callback_data=f"opt:{i}")
-        b.adjust(2)
-        await state.set_state(Flow.choice)
-    else:
-        text += "\n\n<i>Напишите ответ сообщением ✍️</i>"
-        await state.set_state(Flow.text)
-    b.row(InlineKeyboardButton(text="✖️ Отмена", callback_data="menu"))
-    await state.update_data(idx=idx)
-    if edit:
+HELP = (
+    "Просто напишите сообщение — отвечу. Как отвечать, задаёте вы сами.\n\n"
+    "/prompt <текст> — задать стиль и роль бота (например: «отвечай кратко, как преподаватель»)\n"
+    "/prompt — показать текущую инструкцию, /prompt сброс — вернуть стандартную\n"
+    "/image <описание> — нарисовать картинку\n"
+    "/reset — начать новый диалог\n"
+    "/status — состояние нейросетей"
+)
+
+
+# ================= чистка служебных сообщений =================
+async def track(state: FSMContext, *msgs):
+    """Запоминает служебные сообщения (бота и команды пользователя) для удаления."""
+    d = await state.get_data()
+    ids = d.get("junk", []) + [x.message_id for x in msgs if x]
+    await state.update_data(junk=ids[-80:])
+
+
+async def sweep(bot: Bot, chat_id: int, state: FSMContext):
+    """Удаляет всё запомненное. Вопросы пользователя и ответы бота не трогаем."""
+    d = await state.get_data()
+    ids = d.get("junk", [])
+    if not ids:
+        return
+    await state.update_data(junk=[])
+    for i in range(0, len(ids), 100):
+        part = ids[i : i + 100]
         try:
-            await msg.edit_text(text, reply_markup=b.as_markup())
-            return
+            await bot.delete_messages(chat_id, part)
         except Exception:
-            pass
-    await msg.answer(text, reply_markup=b.as_markup())
+            for mid in part:
+                try:
+                    await bot.delete_message(chat_id, mid)
+                except Exception:
+                    pass
 
 
-async def advance(msg: Message, state: FSMContext, edit: bool):
-    d = await state.get_data()
-    nxt = d["idx"] + 1
-    if nxt < len(STEPS):
-        await ask_step(msg, state, nxt, edit)
-    else:
-        await finish(msg, state)
+@asynccontextmanager
+async def typing(m: Message, action=ChatAction.TYPING):
+    """Показывает «печатает…» вместо отдельных сообщений-заглушек."""
 
+    async def loop():
+        while True:
+            try:
+                await m.bot.send_chat_action(m.chat.id, action)
+            except Exception:
+                pass
+            await asyncio.sleep(4)
 
-async def finish(msg: Message, state: FSMContext):
-    d = await state.get_data()
-    prompt = SC["final_prompt"].format_map(Safe(d["answers"]))
-    history = [{"role": "user", "content": prompt}]
-    status = await msg.answer("⏳ <i>Думаю над ответом…</i>")
-    await msg.bot.send_chat_action(msg.chat.id, ChatAction.TYPING)
-    reply, prov = await ask_llm(build("", history))
+    t = asyncio.create_task(loop())
     try:
-        await status.delete()
+        yield
+    finally:
+        t.cancel()
+
+
+async def spinner(msg: Message, base: str):
+    frames = ["", ".", "..", "..."]
+    i = 0
+    try:
+        while True:
+            await asyncio.sleep(2)
+            i += 1
+            await msg.edit_text(f"{base}{frames[i % 4]}")
     except Exception:
         pass
-    if not reply:
-        return await msg.answer(fail_text(), reply_markup=kb_fail(), parse_mode=None)
-    history.append({"role": "assistant", "content": reply})
-    await state.set_state(Flow.chat)
-    await state.update_data(history=history, summary="")
-    await send_result(msg, reply, kb_after(), prov)
 
 
 # ================= хендлеры =================
 @router.message(CommandStart())
-@router.message(Command("menu"))
+@router.message(Command("help"))
 async def cmd_start(m: Message, state: FSMContext):
     if not allowed(m.from_user.id):
         return await m.answer("⛔ Нет доступа.")
-    await state.clear()
-    await m.answer(f"<b>{esc(SC['title'])}</b>\n\n{esc(SC['welcome'])}", reply_markup=kb_menu())
+    r = await m.answer(f"<b>{esc(SC['title'])}</b>\n\n{esc(SC['welcome'])}\n\n{esc(HELP)}")
+    await track(state, m, r)
 
 
 @router.message(Command("reset"))
 async def cmd_reset(m: Message, state: FSMContext):
+    d = await state.get_data()
     await state.clear()
-    await m.answer("🧹 Сброшено.", reply_markup=kb_menu())
+    await state.update_data(custom=d.get("custom", ""), junk=d.get("junk", []))
+    r = await m.answer("🧹 Диалог очищен. Ваша инструкция сохранена.")
+    await track(state, m, r)
+
+
+@router.message(Command("prompt"))
+async def cmd_prompt(m: Message, state: FSMContext, command: CommandObject):
+    if not allowed(m.from_user.id):
+        return await m.answer("⛔ Нет доступа.")
+    arg = (command.args or "").strip()
+    d = await state.get_data()
+    if not arg:
+        cur = d.get("custom") or SC["system_prompt"]
+        label = "Ваша инструкция" if d.get("custom") else "Стандартная инструкция"
+        r = await m.answer(
+            f"<b>{label}:</b>\n{esc(cur)}\n\nИзменить: /prompt <i>текст</i>\nСбросить: /prompt сброс"
+        )
+    elif arg.lower() in ("сброс", "reset"):
+        await state.update_data(custom="", history=[], summary="")
+        r = await m.answer("✅ Вернул стандартную инструкцию.")
+    else:
+        await state.update_data(custom=arg[:1500], history=[], summary="")
+        r = await m.answer("✅ Инструкция сохранена, диалог начат заново. Пишите сообщение.")
+    await track(state, m, r)
 
 
 @router.message(Command("status"))
-async def cmd_status(m: Message):
+async def cmd_status(m: Message, state: FSMContext):
     if ALLOWED and m.from_user.id not in ALLOWED:
         return
     lines = []
     for p in PROVIDERS:
         st = "🟢" if p.ready else f"🔴 ещё {int(p.down_until - time.time())} с"
         lines.append(f"{st} <b>{esc(p.name)}</b> · {esc(p.model)} · ctx {p.ctx}" + (f"\n<i>{esc(p.why)}</i>" if p.why else ""))
-    await m.answer("\n".join(lines))
+    r = await m.answer("\n".join(lines))
+    await track(state, m, r)
 
 
-@router.message(Command("help"))
-async def cmd_help(m: Message):
-    await m.answer(
-        "/start — меню\n/reset — сбросить диалог\n/status — состояние нейросетей\n\n"
-        "Пройдите шаги сценария, затем можно уточнять ответ в чате."
-    )
+async def do_image(m: Message, state: FSMContext, text: str):
+    status = await m.answer("🎨 <i>Рисую</i>")
+    await track(state, status)
+    spin = asyncio.create_task(spinner(status, "🎨 <i>Рисую</i>"))
+    try:
+        async with typing(m, ChatAction.UPLOAD_PHOTO):
+            prompt = await to_english_prompt(text)
+            data, info = await gen_image(prompt)
+    finally:
+        spin.cancel()
+    if not data:
+        await sweep(m.bot, m.chat.id, state)
+        err = await m.answer("⚠️ Не удалось создать картинку: " + info, parse_mode=None)
+        return await track(state, err)
+    cap = f"🎨 {esc(text[:200])}" + (f"\n<i>⚙️ {info}</i>" if SHOW_PROVIDER else "")
+    await m.answer_photo(BufferedInputFile(data, filename="image.png"), caption=cap)
+    await sweep(m.bot, m.chat.id, state)
 
 
-@router.callback_query(F.data == "menu")
-async def cb_menu(c: CallbackQuery, state: FSMContext):
-    await state.clear()
-    await c.message.answer(
-        f"<b>{esc(SC['title'])}</b>\n\n{esc(SC['welcome'])}", reply_markup=kb_menu()
-    )
-    await c.answer()
+@router.message(Command("image"))
+async def cmd_image(m: Message, state: FSMContext, command: CommandObject):
+    if not allowed(m.from_user.id):
+        return await m.answer("⛔ Нет доступа.")
+    if command.args:
+        return await do_image(m, state, command.args.strip())
+    await state.set_state(Flow.image)
+    r = await m.answer("🎨 Опишите, что нарисовать ✍️")
+    await track(state, m, r)
 
 
-@router.callback_query(F.data == "about")
-async def cb_about(c: CallbackQuery):
-    await c.answer(SC.get("about", "Бот с автопереключением нейросетей"), show_alert=True)
+@router.message(Flow.image, F.text)
+async def msg_image(m: Message, state: FSMContext):
+    await state.set_state(None)
+    if m.text.startswith("/"):
+        r = await m.answer("Отменено.")
+        return await track(state, m, r)
+    await do_image(m, state, m.text.strip())
 
 
-@router.callback_query(F.data == "go")
-async def cb_go(c: CallbackQuery, state: FSMContext):
-    if not allowed(c.from_user.id):
-        return await c.answer("Нет доступа", show_alert=True)
-    await state.clear()
-    await state.update_data(answers={})
-    await ask_step(c.message, state, 0, edit=False)
-    await c.answer()
-
-
-@router.callback_query(F.data == "retry")
-async def cb_retry(c: CallbackQuery, state: FSMContext):
-    d = await state.get_data()
-    await c.answer()
-    if "answers" in d:
-        await finish(c.message, state)
-    else:
-        await c.message.answer("Начните заново 👇", reply_markup=kb_menu())
-
-
-@router.callback_query(F.data == "chat_hint")
-async def cb_chat_hint(c: CallbackQuery):
-    await c.message.answer("💬 Напишите уточнение или вопрос — продолжу с учётом ответа выше.")
-    await c.answer()
-
-
-@router.callback_query(Flow.choice, F.data.startswith("opt:"))
-async def cb_opt(c: CallbackQuery, state: FSMContext):
-    d = await state.get_data()
-    step = STEPS[d["idx"]]
-    value = step["options"][int(c.data.split(":")[1])]
-    answers = d["answers"]
-    answers[step["key"]] = value
-    await state.update_data(answers=answers)
-    await c.answer(f"✓ {value}")
-    await advance(c.message, state, edit=True)
-
-
-@router.message(Flow.text, F.text)
-async def msg_text_step(m: Message, state: FSMContext):
-    d = await state.get_data()
-    step = STEPS[d["idx"]]
-    answers = d["answers"]
-    answers[step["key"]] = m.text.strip()
-    await state.update_data(answers=answers)
-    await advance(m, state, edit=False)
-
-
-@router.message(Flow.chat, F.text)
-async def msg_chat(m: Message, state: FSMContext):
-    d = await state.get_data()
-    history, summary = d.get("history", []), d.get("summary", "")
-    history.append({"role": "user", "content": m.text})
-    await m.bot.send_chat_action(m.chat.id, ChatAction.TYPING)
-    summary, history = await compact(summary, history)
-    reply, prov = await ask_llm(build(summary, history))
-    if not reply:
-        history.pop()  # не засоряем контекст неотвеченной репликой
-        await state.update_data(history=history, summary=summary)
-        return await m.answer(fail_text() + "\nОтправьте сообщение ещё раз.", parse_mode=None)
-    history.append({"role": "assistant", "content": reply})
-    await state.update_data(history=history, summary=summary)
-    await send_result(m, reply, kb_after(), prov)
+@router.message(F.text.startswith("/"))
+async def msg_unknown_cmd(m: Message, state: FSMContext):
+    r = await m.answer("Неизвестная команда. Список: /help")
+    await track(state, m, r)
 
 
 @router.message(F.text)
-async def msg_fallback(m: Message):
-    await m.answer("Нажмите, чтобы начать 👇", reply_markup=kb_menu())
+async def msg_chat(m: Message, state: FSMContext):
+    if not allowed(m.from_user.id):
+        return await m.answer("⛔ Нет доступа.")
+    d = await state.get_data()
+    history, summary, custom = d.get("history", []), d.get("summary", ""), d.get("custom", "")
+    history.append({"role": "user", "content": m.text})
+    async with typing(m):
+        summary, history = await compact(summary, history, custom)
+        reply, prov = await ask_llm(build(summary, history, custom))
+    if not reply:
+        history.pop()  # не засоряем контекст неотвеченной репликой
+        await state.update_data(history=history, summary=summary)
+        await sweep(m.bot, m.chat.id, state)
+        err = await m.answer(fail_text(), parse_mode=None)
+        return await track(state, err)
+    history.append({"role": "assistant", "content": reply})
+    await state.update_data(history=history, summary=summary)
+    await send_result(m, reply, prov)
+    await sweep(m.bot, m.chat.id, state)  # убираем всё лишнее, остаются вопрос и ответ
 
 
 # ================= запуск =================
@@ -460,8 +489,9 @@ async def main():
     await bot.delete_webhook(drop_pending_updates=True)
     await bot.set_my_commands(
         [
-            BotCommand(command="start", description="Меню"),
-            BotCommand(command="reset", description="Сбросить диалог"),
+            BotCommand(command="prompt", description="Задать стиль ответов"),
+            BotCommand(command="image", description="Нарисовать картинку"),
+            BotCommand(command="reset", description="Новый диалог"),
             BotCommand(command="status", description="Состояние нейросетей"),
             BotCommand(command="help", description="Помощь"),
         ]
