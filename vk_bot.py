@@ -184,6 +184,17 @@ class Vk:
                 log.info("vk: сообщество %s (%s)", groups[0].get("name"), self.group_id)
             else:
                 log.info("vk: сообщество %s", self.group_id)
+            try:
+                await self.api(
+                    "groups.setLongPollSettings",
+                    group_id=self.group_id,
+                    enabled=1,
+                    api_version=API,
+                    message_new=1,
+                )
+                log.info("vk: слушаю входящие сообщения")
+            except VkError as e:
+                log.error("vk: не удалось включить входящие сообщения: %s", e)
             while True:
                 lp = await self.api("groups.getLongPollServer", group_id=self.group_id)
                 server, key, ts = lp["server"], lp["key"], lp["ts"]
@@ -224,6 +235,7 @@ class Vk:
             return
         peer = int(msg.get("peer_id") or from_id)
         text = MENTION.sub(r"\1", msg.get("text") or "").strip()
+        log.info("vk: сообщение от %s в %s: %s", from_id, peer, (text or "без текста")[:120])
         reply = msg.get("reply_message") or {}
         reply_from = int(reply.get("from_id") or 0)
         atts = msg.get("attachments") or []
