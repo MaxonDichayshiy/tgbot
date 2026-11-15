@@ -38,6 +38,7 @@ BOT_TOKEN = os.environ["BOT_TOKEN"]
 PORT = int(os.getenv("PORT", "8080"))
 ALLOWED = {int(x) for x in os.getenv("ALLOWED_USERS", "").split(",") if x.strip()}
 SHOW_PROVIDER = os.getenv("SHOW_PROVIDER", "0") == "1"
+SHOW_TRANSCRIPT = os.getenv("SHOW_TRANSCRIPT", "0") == "1"
 COMPACT_AT = int(os.getenv("COMPACT_AT", "3500"))  # ~токенов, после чего сжимаем историю
 CF_ACCOUNT = os.getenv("CF_ACCOUNT_ID", "")
 CF_TOKEN = os.getenv("CF_API_TOKEN", "")
@@ -53,6 +54,7 @@ class Provider:
     def __init__(self, c: dict, key: str):
         self.name = c["name"]
         self.model = c["model"]
+        self.base_url = c["base_url"]
         self.ctx = int(c.get("ctx", 8000))  # лимит контекста в токенах
         self.client = AsyncOpenAI(
             api_key=key, base_url=c["base_url"], max_retries=0, timeout=60
@@ -225,13 +227,276 @@ async def to_english_prompt(text: str) -> str:
         [
             {
                 "role": "system",
-                "content": "Преврати описание в короткий детальный промпт для генерации "
-                "изображения на английском. Верни только промпт, без кавычек.",
+                "content": "Пользователь просит создать изображение (может быть фраза вроде "
+                "«сделай мне картинку кота»). Выдели, что нужно изобразить, и составь "
+                "короткий детальный промпт для генератора на английском. Верни только промпт, без кавычек.",
             },
             {"role": "user", "content": text},
         ]
     )
     return (out or text).strip().strip('"')[:900]
+
+
+# ================= автоопределение «нарисуй» =================
+_IMG_VERB = r"(нарису\w*|сгенерир\w*|созда\w*|сдела\w*|изобрази\w*|generate|create|make|draw)"
+_IMG_NOUN = r"(картин\w*|изображени\w*|фото\w*|рисун\w*|иллюстраци\w*|постер\w*|аватар\w*|логотип\w*|обои|image|picture|photo|drawing|illustration)"
+IMG_RE = re.compile(rf"(?is)^\s*(нарису\w*|draw)\b|\b{_IMG_VERB}\b.{{0,40}}?\b{_IMG_NOUN}")
+
+
+def is_image_request(text: str) -> bool:
+    """Длинные тексты (документы, статьи) картинкой не считаем."""
+    return len(text) <= 400 and bool(IMG_RE.search(text))
+
+
+# ================= распознавание речи =================
+STT_OPENAI = [  # (имя, base_url, модель, переменная ключа) — понимают ogg напрямую
+    ("groq-whisper", "https://api.groq.com/openai/v1", "whisper-large-v3-turbo", "GROQ_API_KEY"),
+    ("mistral-voxtral", "https://api.mistral.ai/v1", "voxtral-mini-latest", "MISTRAL_API_KEY"),
+]
+STT_PROMPT = (
+    "Дословно расшифруй речь из аудио. Верни только текст расшифровки, без комментариев. "
+    "Если речи нет — верни пустую строку."
+)
+_stt_down: dict = {}
+
+
+async def transcribe(audio: bytes):
+    """Возвращает (текст, источник) или (None, ошибки). Перебирает подходящие модели."""
+    errors = []
+    now = time.time()
+    for name, url, model, env in STT_OPENAI:
+        key = os.getenv(env)
+        if not key or _stt_down.get(name, 0) > now:
+            continue
+        try:
+            cl = AsyncOpenAI(api_key=key, base_url=url, max_retries=0, timeout=60)
+            r = await cl.audio.transcriptions.create(model=model, file=("voice.ogg", audio, "audio/ogg"))
+            if (r.text or "").strip():
+                return r.text.strip(), name
+        except Exception as e:  # noqa
+            _stt_down[name] = now + 300
+            errors.append(f"{name}: {str(e)[:80]}")
+    timeout = aiohttp.ClientTimeout(total=90)
+    b64 = base64.b64encode(audio).decode()
+    async with aiohttp.ClientSession(timeout=timeout) as sess:
+        gkey = os.getenv("GEMINI_API_KEY")
+        if gkey:
+            models = list(dict.fromkeys(p.model for p in PROVIDERS if "generativelanguage" in p.base_url))
+            for model in models:
+                name = f"gemini:{model}"
+                if _stt_down.get(name, 0) > now:
+                    continue
+                try:
+                    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+                    body = {"contents": [{"parts": [
+                        {"inline_data": {"mime_type": "audio/ogg", "data": b64}},
+                        {"text": STT_PROMPT},
+                    ]}]}
+                    async with sess.post(url, json=body, headers={"x-goog-api-key": gkey}) as r:
+                        data = await r.json()
+                        if r.status == 200:
+                            text = data["candidates"][0]["content"]["parts"][0].get("text", "").strip()
+                            if text:
+                                return text, name
+                            errors.append(f"{name}: пусто")
+                        else:
+                            _stt_down[name] = now + (3600 if r.status == 429 else 300)
+                            errors.append(f"{name}: {r.status} {str(data)[:80]}")
+                except Exception as e:  # noqa
+                    _stt_down[name] = now + 300
+                    errors.append(f"{name}: {str(e)[:80]}")
+        if CF_ACCOUNT and CF_TOKEN and _stt_down.get("cloudflare-whisper", 0) <= now:
+            try:
+                url = f"https://api.cloudflare.com/client/v4/accounts/{CF_ACCOUNT}/ai/run/@cf/openai/whisper-large-v3-turbo"
+                async with sess.post(url, headers={"Authorization": f"Bearer {CF_TOKEN}"}, json={"audio": b64}) as r:
+                    data = await r.json()
+                    text = (data.get("result") or {}).get("text", "").strip() if r.status == 200 else ""
+                    if text:
+                        return text, "cloudflare-whisper"
+                    _stt_down["cloudflare-whisper"] = now + 300
+                    errors.append(f"cloudflare-whisper: {r.status}")
+            except Exception as e:  # noqa
+                _stt_down["cloudflare-whisper"] = now + 300
+                errors.append(f"cloudflare-whisper: {str(e)[:80]}")
+    return None, "; ".join(errors) or "нет ключей для распознавания речи"
+
+
+# ================= «встроенные боты»: поиск картинок, гифок, музыки, видео =================
+# Telegram не даёт ботам обращаться к inline-режиму других ботов (@pic, @gif…) — это умеют
+# только пользовательские аккаунты. Поэтому бот ходит в те же открытые источники напрямую.
+UA = {"User-Agent": "Mozilla/5.0 (compatible; TgBot/1.0)"}
+GIPHY_KEY = os.getenv("GIPHY_API_KEY", "")
+TENOR_KEY = os.getenv("TENOR_API_KEY", "")
+
+_M_NOUN = (r"(картин\w*|фото\w*|изображени\w*|пикч\w*|мем\w*|обои|гиф\w*|gif\w*|анимаци\w*|песн\w*|трек\w*|"
+           r"музык\w*|мелоди\w*|композици\w*|саундтрек\w*|видео\w*|ролик\w*|клип\w*|трейлер\w*|"
+           r"song|track|music|video|clip|picture|image|photo|meme)")
+_M_VERB = (r"(скин\w*|кинь\w*|кину\w*|пришл\w*|присл\w*|найд\w*|покаж\w*|отправ\w*|дай\b|включ\w*|"
+           r"постав\w*|хочу|нужн\w*|подбер\w*|show|find|send|play|get)")
+MEDIA_RE = re.compile(rf"(?is)\b{_M_VERB}\b.*\b{_M_NOUN}|\b{_M_NOUN}\b.*\b{_M_VERB}")
+TOOLS = ("pic", "gif", "music", "video", "gen", "chat")
+
+ROUTER_PROMPT = (
+    "Ты — маршрутизатор запросов Telegram-бота. Верни ТОЛЬКО JSON вида "
+    '{"tool": "...", "query": "..."} без пояснений.\n'
+    "tool:\n"
+    "- pic — найти готовую картинку/фото в интернете (скинь, найди, покажи картинку/фото);\n"
+    "- gif — найти гифку/анимацию;\n"
+    "- music — найти песню/трек;\n"
+    "- video — найти видео/ролик/клип/трейлер;\n"
+    "- gen — нарисовать новую оригинальную картинку (нарисуй, сгенерируй, придумай картинку);\n"
+    "- chat — если это вопрос или просьба не про поиск медиа.\n"
+    "query — короткий поисковый запрос без слов-команд. ВАЖНО: если описание явно указывает на "
+    "известного персонажа, игру, фильм, песню, человека, место или предмет — назови его по имени "
+    "(«коротыш в шляпке прыгающий по грибам видеоигра» → «Mario», «синий ёж быстро бегает» → "
+    "«Sonic the Hedgehog»). Иначе оставь суть запроса. Для music: «исполнитель название». "
+    "Для gen: подробное описание."
+)
+
+
+def is_media_request(text: str) -> bool:
+    return len(text) <= 300 and bool(MEDIA_RE.search(text))
+
+
+def _strip_words(text: str) -> str:
+    t = re.sub(rf"(?i)\b{_M_VERB}\b|\b{_M_NOUN}\b|\bмне\b|\bпожалуйста\b", " ", text)
+    return re.sub(r"\s+", " ", t).strip() or text
+
+
+async def route_media(text: str) -> tuple:
+    """(tool, query). LLM решает, что нужно, и формулирует запрос (как «@pic Mario»)."""
+    out, _ = await ask_llm(
+        [{"role": "system", "content": ROUTER_PROMPT}, {"role": "user", "content": text}]
+    )
+    try:
+        j = json.loads(re.search(r"\{.*\}", out or "", re.S).group(0))
+        tool = str(j.get("tool", "")).lower().strip()
+        if tool in TOOLS:
+            return tool, (str(j.get("query") or "").strip() or _strip_words(text))
+    except Exception:
+        pass
+    low = text.lower()  # запасной вариант без нейросети
+    for pat, tool in ((r"гиф|gif|анимаци", "gif"), (r"песн|трек|музык|мелоди|композици|саундтрек|song|track|music", "music"),
+                      (r"видео|ролик|клип|трейлер|video|clip", "video")):
+        if re.search(pat, low):
+            return tool, _strip_words(text)
+    return "pic", _strip_words(text)
+
+
+async def _fetch(sess, url: str, kinds: tuple, limit: int):
+    try:
+        async with sess.get(url, headers=UA) as r:
+            if r.status != 200:
+                return None
+            ct = (r.content_type or "").lower()
+            if not (ct.startswith(kinds) or ct == "application/octet-stream"):
+                return None
+            data = await r.content.read(limit + 1)
+            return data if 0 < len(data) <= limit else None
+    except Exception:
+        return None
+
+
+async def _json(sess, url: str, **kw):
+    try:
+        async with sess.get(url, headers=UA, **kw) as r:
+            return await r.json(content_type=None) if r.status == 200 else None
+    except Exception:
+        return None
+
+
+def _ddg(kind: str, q: str, **kw):
+    from ddgs import DDGS
+    return getattr(DDGS(), kind)(q, safesearch="moderate", max_results=12, **kw)
+
+
+async def search_images(sess, q: str, gif: bool) -> list:
+    urls = []
+    if gif and GIPHY_KEY:
+        j = await _json(sess, f"https://api.giphy.com/v1/gifs/search?api_key={GIPHY_KEY}&q={quote(q)}&limit=8&rating=pg-13")
+        urls += [x["images"]["original"]["url"] for x in (j or {}).get("data", []) if x.get("images")]
+    if gif and TENOR_KEY:
+        j = await _json(sess, f"https://tenor.googleapis.com/v2/search?q={quote(q)}&key={TENOR_KEY}&limit=8&media_filter=gif&contentfilter=medium")
+        urls += [x["media_formats"]["gif"]["url"] for x in (j or {}).get("results", []) if x.get("media_formats")]
+    try:
+        kw = {"type_image": "animated_gif"} if gif else {}
+        res = await asyncio.to_thread(_ddg, "images", q, **kw)
+        urls += [r["image"] for r in res if r.get("image")]
+    except Exception as e:  # noqa
+        log.warning("ddgs images: %s", e)
+    if not gif:
+        j = await _json(sess, f"https://api.openverse.org/v1/images/?q={quote(q)}&page_size=10")
+        urls += [x["url"] for x in (j or {}).get("results", []) if x.get("url")]
+    return list(dict.fromkeys(urls))
+
+
+async def search_music(sess, q: str) -> list:
+    out = []
+    j = await _json(sess, f"https://api.deezer.com/search?q={quote(q)}&limit=5")
+    for t in (j or {}).get("data", []):
+        if t.get("preview"):
+            out.append({"title": t["title"], "artist": t["artist"]["name"], "preview": t["preview"], "link": t.get("link", ""), "ext": "mp3"})
+    if not out:
+        j = await _json(sess, f"https://itunes.apple.com/search?term={quote(q)}&entity=song&limit=5")
+        for t in (j or {}).get("results", []):
+            if t.get("previewUrl"):
+                out.append({"title": t["trackName"], "artist": t["artistName"], "preview": t["previewUrl"], "link": t.get("trackViewUrl", ""), "ext": "m4a"})
+    return out
+
+
+async def run_tool(m: Message, state: FSMContext, tool: str, q: str):
+    timeout = aiohttp.ClientTimeout(total=60)
+    ok = False
+    action = {"pic": ChatAction.UPLOAD_PHOTO, "gif": ChatAction.UPLOAD_PHOTO,
+              "music": ChatAction.UPLOAD_VOICE, "video": ChatAction.TYPING}[tool]
+    async with typing(m, action):
+        async with aiohttp.ClientSession(timeout=timeout) as sess:
+            if tool in ("pic", "gif"):
+                gif = tool == "gif"
+                for url in (await search_images(sess, q, gif))[:10]:
+                    data = await _fetch(sess, url, ("image/",), 20_000_000 if gif else 9_500_000)
+                    if not data:
+                        continue
+                    cap = f"🔎 {esc(q[:200])}"
+                    try:
+                        if gif:
+                            await m.answer_animation(BufferedInputFile(data, filename="anim.gif"), caption=cap)
+                        else:
+                            await m.answer_photo(BufferedInputFile(data, filename="pic.jpg"), caption=cap)
+                        ok = True
+                        break
+                    except Exception as e:  # Telegram отклонил файл — пробуем следующий
+                        log.info("send failed: %s", e)
+            elif tool == "music":
+                for t in (await search_music(sess, q))[:3]:
+                    data = await _fetch(sess, t["preview"], ("audio/",), 15_000_000)
+                    if not data:
+                        continue
+                    link = f'<a href="{html.escape(t["link"])}">Слушать полностью</a> · ' if t["link"] else ""
+                    try:
+                        await m.answer_audio(
+                            BufferedInputFile(data, filename=f'{t["artist"]} - {t["title"]}.{t["ext"]}'),
+                            title=t["title"], performer=t["artist"], caption=f"🎧 {link}превью 30 с",
+                        )
+                        ok = True
+                        break
+                    except Exception as e:  # noqa
+                        log.info("audio send failed: %s", e)
+            elif tool == "video":
+                try:
+                    res = await asyncio.to_thread(_ddg, "videos", q)
+                    for r in res:
+                        url = r.get("content") or r.get("url")
+                        if url:
+                            await m.answer(f"🎬 <b>{esc((r.get('title') or q)[:150])}</b>\n{html.escape(url)}")
+                            ok = True
+                            break
+                except Exception as e:  # noqa
+                    log.warning("ddgs videos: %s", e)
+    await sweep(m.bot, m.chat.id, state)
+    if not ok:
+        err = await m.answer(f"🔍 Ничего не нашёл по запросу «{esc(q[:100])}». Попробуйте переформулировать.")
+        await track(state, err)
 
 # ================= UI-хелперы =================
 class Flow(StatesGroup):
@@ -284,10 +549,12 @@ def fail_text() -> str:
 
 
 HELP = (
-    "Просто напишите сообщение — отвечу. Как отвечать, задаёте вы сами.\n\n"
+    "Просто напишите или надиктуйте сообщение — отвечу.\n"
+    "• «нарисуй …» — создам картинку\n"
+    "• «скинь картинку/гифку/песню/видео …» — найду и пришлю\n\n"
     "/prompt <текст> — задать стиль и роль бота (например: «отвечай кратко, как преподаватель»)\n"
     "/prompt — показать текущую инструкцию, /prompt сброс — вернуть стандартную\n"
-    "/image <описание> — нарисовать картинку\n"
+    "/image <описание> — нарисовать картинку (можно и просто текстом)\n"
     "/reset — начать новый диалог\n"
     "/status — состояние нейросетей"
 )
@@ -448,13 +715,20 @@ async def msg_unknown_cmd(m: Message, state: FSMContext):
     await track(state, m, r)
 
 
-@router.message(F.text)
-async def msg_chat(m: Message, state: FSMContext):
-    if not allowed(m.from_user.id):
-        return await m.answer("⛔ Нет доступа.")
+async def handle_text(m: Message, state: FSMContext, text: str, heard: str = ""):
+    """Общая точка: и для текста, и для расшифрованного голоса."""
+    if is_image_request(text):
+        return await do_image(m, state, text)
+    if is_media_request(text):
+        async with typing(m):
+            tool, q = await route_media(text)
+        if tool == "gen":
+            return await do_image(m, state, q)
+        if tool != "chat":
+            return await run_tool(m, state, tool, q)
     d = await state.get_data()
     history, summary, custom = d.get("history", []), d.get("summary", ""), d.get("custom", "")
-    history.append({"role": "user", "content": m.text})
+    history.append({"role": "user", "content": text})
     async with typing(m):
         summary, history = await compact(summary, history, custom)
         reply, prov = await ask_llm(build(summary, history, custom))
@@ -466,8 +740,35 @@ async def msg_chat(m: Message, state: FSMContext):
         return await track(state, err)
     history.append({"role": "assistant", "content": reply})
     await state.update_data(history=history, summary=summary)
+    if heard and SHOW_TRANSCRIPT:
+        reply = f"🎙 {heard}\n\n{reply}"
     await send_result(m, reply, prov)
     await sweep(m.bot, m.chat.id, state)  # убираем всё лишнее, остаются вопрос и ответ
+
+
+@router.message(F.text)
+async def msg_chat(m: Message, state: FSMContext):
+    if not allowed(m.from_user.id):
+        return await m.answer("⛔ Нет доступа.")
+    await handle_text(m, state, m.text)
+
+
+@router.message(F.voice | F.audio)
+async def msg_voice(m: Message, state: FSMContext):
+    if not allowed(m.from_user.id):
+        return await m.answer("⛔ Нет доступа.")
+    media = m.voice or m.audio
+    if (media.duration or 0) > 300 or (media.file_size or 0) > 19_000_000:
+        r = await m.answer("⚠️ Голосовое слишком длинное (максимум 5 минут).")
+        return await track(state, r)
+    async with typing(m):
+        buf = await m.bot.download(media.file_id)
+        text, info = await transcribe(buf.read())
+    if not text:
+        await sweep(m.bot, m.chat.id, state)
+        err = await m.answer("⚠️ Не удалось распознать голос: " + info, parse_mode=None)
+        return await track(state, err)
+    await handle_text(m, state, text, heard=text)
 
 
 # ================= запуск =================
