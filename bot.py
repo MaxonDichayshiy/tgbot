@@ -51,12 +51,14 @@ class Provider:
             api_key=key, base_url=c["base_url"], max_retries=0, timeout=60
         )
         self.down_until = 0.0
+        self.why = ""
 
     @property
     def ready(self) -> bool:
         return self.down_until <= time.time()
 
     def ban(self, sec: float, why: str):
+        self.why = why
         self.down_until = time.time() + sec
         log.warning("provider %s off for %ss: %s", self.name, int(sec), why)
 
@@ -118,7 +120,7 @@ async def ask_llm(messages: list):
             daily = any(w in msg for w in ("day", "daily", "quota", "exceeded your"))
             ra = e.response.headers.get("retry-after") if e.response else None
             sec = float(ra) + 1 if ra and ra.replace(".", "").isdigit() else (3600 if daily else 60)
-            p.ban(sec, "429 limit")
+            p.ban(sec, f"429: {msg[:160]}")
         except BadRequestError as e:
             msg = str(e).lower()
             if any(w in msg for w in ("context", "length", "too long", "token")):
@@ -129,15 +131,15 @@ async def ask_llm(messages: list):
         except APIStatusError as e:
             code = e.status_code
             if code in (401, 403, 404):
-                p.ban(86400, f"{code} key/model")
+                p.ban(86400, f"{code}: {str(e)[:160]}")
             elif code == 402:
-                p.ban(6 * 3600, "402 no balance")
+                p.ban(6 * 3600, f"402: {str(e)[:160]}")
             elif code >= 500:
-                p.ban(120, f"{code} server")
+                p.ban(120, f"{code}: {str(e)[:160]}")
             else:
-                p.ban(300, f"{code}")
-        except APIConnectionError:
-            p.ban(120, "connection/timeout")
+                p.ban(300, f"{code}: {str(e)[:160]}")
+        except APIConnectionError as e:
+            p.ban(120, f"connection: {str(e)[:160]}")
         except Exception as e:  # noqa
             log.exception("unexpected")
             p.ban(300, repr(e))
@@ -259,7 +261,9 @@ def allowed(uid: int) -> bool:
     return not ALLOWED or uid in ALLOWED
 
 
-FAIL_TEXT = "⚠️ Все нейросети сейчас на лимите. Подождите пару минут и повторите."
+def fail_text() -> str:
+    why = "\n".join(f"• {p.name}: {p.why or 'нет ответа'}" for p in PROVIDERS)
+    return "⚠️ Все нейросети сейчас недоступны.\n" + why[:800]
 
 
 # ================= сценарий =================
@@ -311,7 +315,7 @@ async def finish(msg: Message, state: FSMContext):
     except Exception:
         pass
     if not reply:
-        return await msg.answer(FAIL_TEXT, reply_markup=kb_fail())
+        return await msg.answer(fail_text(), reply_markup=kb_fail(), parse_mode=None)
     history.append({"role": "assistant", "content": reply})
     await state.set_state(Flow.chat)
     await state.update_data(history=history, summary="")
@@ -341,7 +345,7 @@ async def cmd_status(m: Message):
     lines = []
     for p in PROVIDERS:
         st = "🟢" if p.ready else f"🔴 ещё {int(p.down_until - time.time())} с"
-        lines.append(f"{st} <b>{esc(p.name)}</b> · {esc(p.model)} · ctx {p.ctx}")
+        lines.append(f"{st} <b>{esc(p.name)}</b> · {esc(p.model)} · ctx {p.ctx}" + (f"\n<i>{esc(p.why)}</i>" if p.why else ""))
     await m.answer("\n".join(lines))
 
 
@@ -426,7 +430,7 @@ async def msg_chat(m: Message, state: FSMContext):
     if not reply:
         history.pop()  # не засоряем контекст неотвеченной репликой
         await state.update_data(history=history, summary=summary)
-        return await m.answer(FAIL_TEXT + "\nОтправьте сообщение ещё раз.")
+        return await m.answer(fail_text() + "\nОтправьте сообщение ещё раз.", parse_mode=None)
     history.append({"role": "assistant", "content": reply})
     await state.update_data(history=history, summary=summary)
     await send_result(m, reply, kb_after(), prov)
