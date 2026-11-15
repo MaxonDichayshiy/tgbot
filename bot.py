@@ -8,19 +8,28 @@ import random
 import re
 import time
 from contextlib import asynccontextmanager
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import quote
 
 import aiohttp
 
-from aiogram import Bot, Dispatcher, F, Router
+from aiogram import BaseMiddleware, Bot, Dispatcher, F, Router
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ChatAction, ParseMode
+from aiogram.exceptions import TelegramAPIError
 from aiogram.filters import Command, CommandObject, CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
+from aiogram.fsm.storage.base import StorageKey
 from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.types import BotCommand, BufferedInputFile, Message
+from aiogram.types import (
+    BotCommand,
+    BotCommandScopeAllChatAdministrators,
+    BufferedInputFile,
+    ChatPermissions,
+    Message,
+)
 from aiohttp import web
 from openai import (
     APIConnectionError,
@@ -47,6 +56,8 @@ KEEP_LAST = 4  # сколько последних реплик оставлят
 
 SC = json.loads((BASE / "scenario.json").read_text(encoding="utf-8"))
 router = Router()
+STORAGE = MemoryStorage()
+BOT_NAME = "Слопчик"
 
 
 # ================= провайдеры + автопереключение =================
@@ -157,7 +168,9 @@ async def ask_llm(messages: list):
 
 # ================= контекст: сжатие вместо потери =================
 def build(summary: str, history: list, custom: str = "") -> list:
-    sys = custom or SC["system_prompt"]
+    sys = f"Тебя зовут {BOT_NAME}. Если спросят, как тебя зовут, отвечай, что ты {BOT_NAME}. " + (
+        custom or SC["system_prompt"]
+    )
     if summary:
         sys += "\n\nКраткое содержание предыдущего диалога:\n" + summary
     return [{"role": "system", "content": sys}] + history
@@ -460,9 +473,9 @@ async def run_tool(m: Message, state: FSMContext, tool: str, q: str):
                     cap = f"🔎 {esc(q[:200])}"
                     try:
                         if gif:
-                            await m.answer_animation(BufferedInputFile(data, filename="anim.gif"), caption=cap)
+                            await out(m, "animation")(BufferedInputFile(data, filename="anim.gif"), caption=cap)
                         else:
-                            await m.answer_photo(BufferedInputFile(data, filename="pic.jpg"), caption=cap)
+                            await out(m, "photo")(BufferedInputFile(data, filename="pic.jpg"), caption=cap)
                         ok = True
                         break
                     except Exception as e:  # Telegram отклонил файл — пробуем следующий
@@ -474,7 +487,7 @@ async def run_tool(m: Message, state: FSMContext, tool: str, q: str):
                         continue
                     link = f'<a href="{html.escape(t["link"])}">Слушать полностью</a> · ' if t["link"] else ""
                     try:
-                        await m.answer_audio(
+                        await out(m, "audio")(
                             BufferedInputFile(data, filename=f'{t["artist"]} - {t["title"]}.{t["ext"]}'),
                             title=t["title"], performer=t["artist"], caption=f"🎧 {link}превью 30 с",
                         )
@@ -488,14 +501,14 @@ async def run_tool(m: Message, state: FSMContext, tool: str, q: str):
                     for r in res:
                         url = r.get("content") or r.get("url")
                         if url:
-                            await m.answer(f"🎬 <b>{esc((r.get('title') or q)[:150])}</b>\n{html.escape(url)}")
+                            await out(m)(f"🎬 <b>{esc((r.get('title') or q)[:150])}</b>\n{html.escape(url)}")
                             ok = True
                             break
                 except Exception as e:  # noqa
                     log.warning("ddgs videos: %s", e)
     await sweep(m.bot, m.chat.id, state)
     if not ok:
-        err = await m.answer(f"🔍 Ничего не нашёл по запросу «{esc(q[:100])}». Попробуйте переформулировать.")
+        err = await out(m)(f"🔍 Ничего не нашёл по запросу «{esc(q[:100])}». Попробуйте переформулировать.")
         await track(state, err)
 
 # ================= UI-хелперы =================
@@ -534,13 +547,51 @@ async def send_result(msg: Message, text: str, provider: str = ""):
         foot_h = f"\n\n<i>⚙️ {esc(provider)}</i>" if provider and SHOW_PROVIDER else ""
         foot_p = f"\n\n⚙️ {provider}" if provider and SHOW_PROVIDER else ""
         try:
-            await msg.answer(md_to_html(p) + foot_h)
+            await out(msg)(md_to_html(p) + foot_h)
         except Exception:
-            await msg.answer(p + foot_p, parse_mode=None)
+            await out(msg)(p + foot_p, parse_mode=None)
 
 
 def allowed(uid: int) -> bool:
     return not ALLOWED or uid in ALLOWED
+
+
+NAME_RE = re.compile(r"(?i)(?<!\w)(слопчик\w*|slopchik\w*)")
+NAME_START_RE = re.compile(r"(?i)^[\s,.:;!\-—–]*(слопчик\w*|slopchik\w*)[\s,.:;!\-—–]*")
+
+
+def is_group(m: Message) -> bool:
+    return m.chat.type in ("group", "supergroup")
+
+
+def who(m: Message) -> int:
+    return m.from_user.id if getattr(m, "from_user", None) else 0
+
+
+def out(m: Message, kind: str = ""):
+    """В группах отвечаем реплаем на сообщение, в личке и каналах — обычным сообщением."""
+    pre = "reply" if is_group(m) else "answer"
+    return getattr(m, f"{pre}_{kind}" if kind else pre)
+
+
+async def addressed(m: Message, text: str):
+    """(обращаются ли к боту, очищенный текст). В личке — всегда да."""
+    if not is_group(m):
+        return True, text, text
+    me = await m.bot.me()
+    hit = bool(NAME_RE.search(text)) or f"@{(me.username or '').lower()}" in text.lower()
+    rt = m.reply_to_message
+    if not hit and rt and rt.from_user and rt.from_user.id == me.id:
+        hit = True
+    if not hit:
+        return False, text, text
+    cleaned = re.sub(rf"(?i)@{re.escape(me.username or '')}", "", text)
+    cleaned = NAME_START_RE.sub("", cleaned).strip()
+    raw = cleaned  # только слова самого пользователя — для разбора команд модерации
+    if rt and (rt.text or rt.caption) and not (rt.from_user and rt.from_user.id == me.id):
+        quoted = (rt.text or rt.caption)[:1500]
+        cleaned = f"Сообщение, на которое отвечают: «{quoted}»\n\n{cleaned}"
+    return True, cleaned, raw
 
 
 def fail_text() -> str:
@@ -549,14 +600,15 @@ def fail_text() -> str:
 
 
 HELP = (
-    "Просто напишите или надиктуйте сообщение — отвечу.\n"
+    "Меня зовут Слопчик. Напишите или надиктуйте сообщение — отвечу. В группах и каналах откликаюсь на имя «Слопчик».\n"
     "• «нарисуй …» — создам картинку\n"
     "• «скинь картинку/гифку/песню/видео …» — найду и пришлю\n\n"
     "/prompt <текст> — задать стиль и роль бота (например: «отвечай кратко, как преподаватель»)\n"
     "/prompt — показать текущую инструкцию, /prompt сброс — вернуть стандартную\n"
     "/image <описание> — нарисовать картинку (можно и просто текстом)\n"
     "/reset — начать новый диалог\n"
-    "/status — состояние нейросетей"
+    "/status — состояние нейросетей\n"
+    "/mod — команды модерации для админов групп"
 )
 
 
@@ -618,11 +670,326 @@ async def spinner(msg: Message, base: str):
         pass
 
 
+# ================= модерация групп =================
+WARN_LIMIT = int(os.getenv("WARN_LIMIT", "3"))
+WARN_MUTE_MIN = int(os.getenv("WARN_MUTE_MIN", "1440"))
+ANON_ADMIN_ID = 1087968824  # «Анонимный админ»: писать так могут только админы группы
+SEEN_ID: dict = {}    # (chat, user_id) -> имя
+SEEN_NAME: dict = {}  # (chat, username) -> user_id
+WARNS: dict = {}      # (chat, user_id) -> число предупреждений (в памяти)
+LOCKED: dict = {}     # chat -> права до /lock
+
+ACTIONS = ("ban", "unban", "kick", "mute", "unmute", "warn", "unwarn", "warns",
+           "delete", "purge", "pin", "unpin", "lock", "unlock")
+RESTRICT, DELETE, PIN = "can_restrict_members", "can_delete_messages", "can_pin_messages"
+RIGHT = {"ban": RESTRICT, "unban": RESTRICT, "kick": RESTRICT, "mute": RESTRICT, "unmute": RESTRICT,
+         "warn": RESTRICT, "unwarn": RESTRICT, "warns": None, "delete": DELETE, "purge": DELETE,
+         "pin": PIN, "unpin": PIN, "lock": RESTRICT, "unlock": RESTRICT}
+RIGHT_RU = {RESTRICT: "Блокировка участников", DELETE: "Удаление сообщений", PIN: "Закрепление сообщений"}
+NEEDS_TARGET = {"ban", "unban", "kick", "mute", "unmute", "warn", "unwarn", "warns"}
+CMD_ACTION = {"ban": "ban", "unban": "unban", "kick": "kick", "mute": "mute", "unmute": "unmute",
+              "warn": "warn", "unwarn": "unwarn", "warns": "warns", "del": "delete", "purge": "purge",
+              "pin": "pin", "unpin": "unpin", "lock": "lock", "unlock": "unlock"}
+MOD_RE = re.compile(
+    r"(?i)(?<!\w)(бан\w*|забан\w*|разбан\w*|кик\w*|выгон\w*|выгн\w*|выкин\w*|мут\w*|замут\w*|размут\w*|"
+    r"заглуш\w*|заткн\w*|предупред\w*|предупреж\w*|варн\w*|удал\w*|очист\w*|закреп\w*|откреп\w*|"
+    r"закро\w*|откро\w*|заблок\w*|разблок\w*)"
+)
+MOD_PROMPT = (
+    "Ты разбираешь команды модерации Telegram-группы от админа. Верни ТОЛЬКО JSON "
+    '{"action": "...", "duration_min": 0, "reason": "", "count": 0}.\n'
+    "action: ban, unban, kick, mute, unmute, warn, unwarn, warns, delete, purge, pin, unpin, lock, unlock "
+    "или none. none — если это не команда модерации (вопрос, разговор, просьба объяснить).\n"
+    "duration_min — срок в минутах (0 = навсегда/не указано); для mute без срока ставь 60. "
+    "count — сколько последних сообщений удалить (purge), иначе 0. reason — причина, если названа.\n"
+    "«выгони/кикни» = kick; «замуть/заткни/заглуши» = mute; «забань/заблокируй» = ban; "
+    "«закрой чат» = lock; «удали это/его сообщение» = delete; «удали последние N сообщений» = purge."
+)
+MOD_HELP = (
+    "🛡 Модерация (бот должен быть админом, команды доступны только админам):\n"
+    "/ban, /unban, /kick, /mute 30м, /unmute, /warn, /unwarn, /warns — ответом на сообщение или с @username\n"
+    "/del — удалить сообщение (ответом), /purge [N] — удалить пачку сообщений\n"
+    "/pin, /unpin — закрепить/открепить (ответом)\n"
+    "/lock, /unlock — закрыть/открыть чат\n"
+    "Можно и словами: «Слопчик, замуть его на час», «Слопчик, удали последние 10 сообщений»."
+)
+
+
+def mention(uid: int, name: str) -> str:
+    return f'<a href="tg://user?id={uid}">{esc(name or "пользователь")}</a>'
+
+
+def fmt_min(n: int) -> str:
+    if not n:
+        return "навсегда"
+    if n < 60:
+        return f"{n} мин"
+    if n < 1440:
+        return f"{n // 60} ч" + (f" {n % 60} мин" if n % 60 else "")
+    return f"{n // 1440} дн" + (f" {n % 1440 // 60} ч" if n % 1440 >= 60 else "")
+
+
+_DUR_RE = re.compile(r"(?i)^(\d{1,6})\s*(с|сек\w*|s|м|мин\w*|m|ч|час\w*|h|д|дн\w*|д\w*|d)?$")
+
+
+def parse_duration(tok: str):
+    """'30м', '2ч', '1д', '45' (минуты), 'навсегда' -> минуты; None — не срок."""
+    if tok.lower() in ("навсегда", "forever", "perm"):
+        return 0
+    mt = _DUR_RE.match(tok)
+    if not mt:
+        return None
+    n, u = int(mt.group(1)), (mt.group(2) or "м").lower()
+    if u.startswith(("с", "s")):
+        return max(1, n // 60)
+    if u.startswith(("м", "m")):
+        return n
+    if u.startswith(("ч", "h")):
+        return n * 60
+    return n * 1440
+
+
+def parse_args(args: str):
+    minutes, count, reason = None, 0, []
+    for tok in args.split():
+        if tok.startswith("@") or tok.isdigit() and len(tok) >= 7:
+            continue
+        d = parse_duration(tok)
+        if d is not None and minutes is None:
+            minutes = d
+            if tok.isdigit():
+                count = int(tok)
+        else:
+            reason.append(tok)
+    return minutes, " ".join(reason), count
+
+
+def remember(chat_id: int, u):
+    if not u or getattr(u, "is_bot", False):
+        return
+    if len(SEEN_ID) > 5000:
+        SEEN_ID.clear()
+        SEEN_NAME.clear()
+    SEEN_ID[(chat_id, u.id)] = u.full_name
+    if u.username:
+        SEEN_NAME[(chat_id, u.username.lower())] = u.id
+
+
+class SeenMiddleware(BaseMiddleware):
+    """Запоминает участников чата, чтобы понимать «@username» в командах."""
+
+    async def __call__(self, handler, event, data):
+        try:
+            if event.chat.type in ("group", "supergroup"):
+                rt = event.reply_to_message
+                for u in (event.from_user, rt.from_user if rt else None, *(event.new_chat_members or [])):
+                    remember(event.chat.id, u)
+        except Exception:
+            pass
+        return await handler(event, data)
+
+
+router.message.outer_middleware(SeenMiddleware())
+
+
+async def member_of(bot: Bot, chat_id: int, uid: int):
+    try:
+        return await bot.get_chat_member(chat_id, uid)
+    except Exception:
+        return None
+
+
+def can(member, right) -> bool:
+    if member is None:
+        return False
+    if member.status == "creator":
+        return True
+    return member.status == "administrator" and (right is None or bool(getattr(member, right, False)))
+
+
+async def requester_can(m: Message, right) -> bool:
+    sc = getattr(m, "sender_chat", None)
+    if m.from_user and m.from_user.id == ANON_ADMIN_ID and sc and sc.id == m.chat.id:
+        return True  # анонимный админ (права проверить нельзя)
+    return can(await member_of(m.bot, m.chat.id, who(m)), right)
+
+
+def resolve_target(m: Message, text: str, bot_username: str):
+    """Кого модерируем: @упоминание в тексте > ответ на сообщение. ID — только из Telegram, не от нейросети."""
+    for e in (m.entities or []):
+        if e.type == "text_mention" and e.user and not e.user.is_bot:
+            return e.user.id, e.user.full_name
+    for name in re.findall(r"@(\w{4,32})", text):
+        if name.lower() == bot_username.lower():
+            continue
+        uid = SEEN_NAME.get((m.chat.id, name.lower()))
+        if uid:
+            return uid, SEEN_ID.get((m.chat.id, uid), "@" + name)
+    rt = m.reply_to_message
+    if rt and rt.from_user and not getattr(rt, "sender_chat", None):
+        return rt.from_user.id, rt.from_user.full_name
+    return None
+
+
+def _full_perms() -> ChatPermissions:
+    return ChatPermissions(
+        can_send_messages=True, can_send_audios=True, can_send_documents=True, can_send_photos=True,
+        can_send_videos=True, can_send_video_notes=True, can_send_voice_notes=True, can_send_polls=True,
+        can_send_other_messages=True, can_add_web_page_previews=True, can_invite_users=True,
+    )
+
+
+async def _chat_perms(bot: Bot, chat_id: int) -> ChatPermissions:
+    try:
+        return (await bot.get_chat(chat_id)).permissions or _full_perms()
+    except Exception:
+        return _full_perms()
+
+
+def _until(minutes):
+    return datetime.now(timezone.utc) + timedelta(minutes=minutes) if minutes else None
+
+
+async def _exec(m: Message, action: str, tid, tname, minutes, reason, count) -> str:
+    bot, cid, rt = m.bot, m.chat.id, m.reply_to_message
+    who_ = mention(tid, tname) if tid else ""
+    why = f"\nПричина: {esc(reason)}" if reason else ""
+    if action == "ban":
+        await bot.ban_chat_member(cid, tid, until_date=_until(minutes))
+        return f"🔨 {who_} заблокирован ({fmt_min(minutes or 0)}).{why}"
+    if action == "unban":
+        await bot.unban_chat_member(cid, tid, only_if_banned=True)
+        return f"✅ {who_} разблокирован."
+    if action == "kick":
+        await bot.ban_chat_member(cid, tid)
+        await bot.unban_chat_member(cid, tid, only_if_banned=True)
+        return f"👢 {who_} исключён из чата.{why}"
+    if action == "mute":
+        minutes = 60 if minutes is None else minutes
+        await bot.restrict_chat_member(cid, tid, permissions=ChatPermissions(can_send_messages=False),
+                                       until_date=_until(minutes))
+        return f"🔇 {who_} в муте ({fmt_min(minutes)}).{why}"
+    if action == "unmute":
+        await bot.restrict_chat_member(cid, tid, permissions=await _chat_perms(bot, cid))
+        return f"🔊 {who_} снова может писать."
+    if action == "warn":
+        n = WARNS.get((cid, tid), 0) + 1
+        if n >= WARN_LIMIT:
+            WARNS.pop((cid, tid), None)
+            await bot.restrict_chat_member(cid, tid, permissions=ChatPermissions(can_send_messages=False),
+                                           until_date=_until(WARN_MUTE_MIN))
+            return f"⚠️ {who_}: {WARN_LIMIT}/{WARN_LIMIT} предупреждений — мут на {fmt_min(WARN_MUTE_MIN)}.{why}"
+        WARNS[(cid, tid)] = n
+        return f"⚠️ {who_}: предупреждение {n}/{WARN_LIMIT}.{why}"
+    if action == "unwarn":
+        WARNS.pop((cid, tid), None)
+        return f"✅ Предупреждения {who_} сняты."
+    if action == "warns":
+        return f"ℹ️ У {who_}: {WARNS.get((cid, tid), 0)}/{WARN_LIMIT} предупреждений."
+    if action == "delete":
+        if not rt:
+            return "Ответьте на сообщение, которое нужно удалить."
+        await bot.delete_message(cid, rt.message_id)
+        return ""
+    if action == "purge":
+        start = rt.message_id if rt else (m.message_id - count if count else 0)
+        if not start:
+            return "Ответьте на сообщение, с которого чистить, или укажите число: /purge 20"
+        ids = list(range(max(start, m.message_id - 200), m.message_id + 1))
+        for i in range(0, len(ids), 100):
+            try:
+                await bot.delete_messages(cid, ids[i:i + 100])
+            except Exception:
+                pass
+        return f"🧹 Очищено сообщений: до {len(ids) - 1}."
+    if action == "pin":
+        if not rt:
+            return "Ответьте на сообщение, которое нужно закрепить."
+        await bot.pin_chat_message(cid, rt.message_id, disable_notification=True)
+        return "📌 Закреплено."
+    if action == "unpin":
+        await bot.unpin_chat_message(cid, message_id=rt.message_id if rt else None)
+        return "📌 Откреплено."
+    if action == "lock":
+        LOCKED[cid] = await _chat_perms(bot, cid)
+        await bot.set_chat_permissions(cid, ChatPermissions(can_send_messages=False))
+        return "🔒 Чат закрыт для обычных участников. Открыть: /unlock"
+    if action == "unlock":
+        await bot.set_chat_permissions(cid, LOCKED.pop(cid, None) or _full_perms())
+        return "🔓 Чат снова открыт."
+    return ""
+
+
+async def do_mod(m: Message, action: str, text: str = "", minutes=None, reason: str = "", count: int = 0):
+    if not is_group(m):
+        return await m.answer("🛡 Модерация работает только в группах.")
+    bot, cid = m.bot, m.chat.id
+    right = RIGHT[action]
+    if not await requester_can(m, right):
+        need = f" с правом «{RIGHT_RU[right]}»" if right else ""
+        return await out(m)(f"⛔ Это могут только админы{need}.")
+    me = await bot.me()
+    if right and not can(await member_of(bot, cid, me.id), right):
+        return await out(m)(f"⚠️ Мне нужно право админа «{RIGHT_RU[right]}». Выдайте его в настройках группы.")
+    tid = tname = None
+    if action in NEEDS_TARGET:
+        target = resolve_target(m, text, me.username or "")
+        if not target:
+            return await out(m)("Укажите, кого: ответьте на его сообщение или напишите @username "
+                                "(если он уже писал в этот чат).")
+        tid, tname = target
+        if tid == me.id:
+            return await out(m)("Себя я трогать не буду 🙂")
+        tm = await member_of(bot, cid, tid)
+        if tm and tm.status in ("creator", "administrator") and action in ("ban", "kick", "mute", "warn"):
+            return await out(m)("⛔ Это админ — его я трогать не буду.")
+    try:
+        msg = await _exec(m, action, tid, tname, minutes, reason, count)
+    except TelegramAPIError as e:
+        return await out(m)(f"⚠️ Не получилось: {esc(str(e)[:150])}", parse_mode=None)
+    if action not in ("purge",):
+        try:
+            await bot.delete_message(cid, m.message_id)  # убираем саму команду
+        except Exception:
+            pass
+    if msg:
+        await bot.send_message(cid, msg)
+
+
+async def try_moderate(m: Message, raw: str) -> bool:
+    """Команда словами. Нейросеть выбирает только действие и срок; цель берётся из Telegram."""
+    txt, _ = await ask_llm([{"role": "system", "content": MOD_PROMPT}, {"role": "user", "content": raw}])
+    try:
+        j = json.loads(re.search(r"\{.*\}", txt or "", re.S).group(0))
+        action = str(j.get("action", "none")).lower().strip()
+        if action not in ACTIONS:
+            return False
+        minutes = max(0, min(int(j.get("duration_min") or 0), 525600))
+        count = max(0, min(int(j.get("count") or 0), 200))
+        reason = str(j.get("reason") or "")[:200]
+    except Exception:
+        return False
+    await do_mod(m, action, text=raw, minutes=minutes, reason=reason, count=count)
+    return True
+
+
+@router.message(Command(*CMD_ACTION))
+async def cmd_mod(m: Message, command: CommandObject):
+    args = command.args or ""
+    minutes, reason, count = parse_args(args)
+    await do_mod(m, CMD_ACTION[command.command], text=args, minutes=minutes, reason=reason, count=count)
+
+
+@router.message(Command("mod"))
+async def cmd_mod_help(m: Message):
+    await m.answer(MOD_HELP)
+
+
 # ================= хендлеры =================
 @router.message(CommandStart())
 @router.message(Command("help"))
 async def cmd_start(m: Message, state: FSMContext):
-    if not allowed(m.from_user.id):
+    if not allowed(who(m)):
         return await m.answer("⛔ Нет доступа.")
     r = await m.answer(f"<b>{esc(SC['title'])}</b>\n\n{esc(SC['welcome'])}\n\n{esc(HELP)}")
     await track(state, m, r)
@@ -639,7 +1006,7 @@ async def cmd_reset(m: Message, state: FSMContext):
 
 @router.message(Command("prompt"))
 async def cmd_prompt(m: Message, state: FSMContext, command: CommandObject):
-    if not allowed(m.from_user.id):
+    if not allowed(who(m)):
         return await m.answer("⛔ Нет доступа.")
     arg = (command.args or "").strip()
     d = await state.get_data()
@@ -660,7 +1027,7 @@ async def cmd_prompt(m: Message, state: FSMContext, command: CommandObject):
 
 @router.message(Command("status"))
 async def cmd_status(m: Message, state: FSMContext):
-    if ALLOWED and m.from_user.id not in ALLOWED:
+    if ALLOWED and who(m) not in ALLOWED:
         return
     lines = []
     for p in PROVIDERS:
@@ -685,13 +1052,13 @@ async def do_image(m: Message, state: FSMContext, text: str):
         err = await m.answer("⚠️ Не удалось создать картинку: " + info, parse_mode=None)
         return await track(state, err)
     cap = f"🎨 {esc(text[:200])}" + (f"\n<i>⚙️ {info}</i>" if SHOW_PROVIDER else "")
-    await m.answer_photo(BufferedInputFile(data, filename="image.png"), caption=cap)
+    await out(m, "photo")(BufferedInputFile(data, filename="image.png"), caption=cap)
     await sweep(m.bot, m.chat.id, state)
 
 
 @router.message(Command("image"))
 async def cmd_image(m: Message, state: FSMContext, command: CommandObject):
-    if not allowed(m.from_user.id):
+    if not allowed(who(m)):
         return await m.answer("⛔ Нет доступа.")
     if command.args:
         return await do_image(m, state, command.args.strip())
@@ -711,6 +1078,8 @@ async def msg_image(m: Message, state: FSMContext):
 
 @router.message(F.text.startswith("/"))
 async def msg_unknown_cmd(m: Message, state: FSMContext):
+    if is_group(m):
+        return
     r = await m.answer("Неизвестная команда. Список: /help")
     await track(state, m, r)
 
@@ -736,7 +1105,7 @@ async def handle_text(m: Message, state: FSMContext, text: str, heard: str = "")
         history.pop()  # не засоряем контекст неотвеченной репликой
         await state.update_data(history=history, summary=summary)
         await sweep(m.bot, m.chat.id, state)
-        err = await m.answer(fail_text(), parse_mode=None)
+        err = await out(m)(fail_text(), parse_mode=None)
         return await track(state, err)
     history.append({"role": "assistant", "content": reply})
     await state.update_data(history=history, summary=summary)
@@ -748,15 +1117,37 @@ async def handle_text(m: Message, state: FSMContext, text: str, heard: str = "")
 
 @router.message(F.text)
 async def msg_chat(m: Message, state: FSMContext):
-    if not allowed(m.from_user.id):
-        return await m.answer("⛔ Нет доступа.")
-    await handle_text(m, state, m.text)
+    if not allowed(who(m)):
+        return None if is_group(m) else await m.answer("⛔ Нет доступа.")
+    ok, text, raw = await addressed(m, m.text)
+    if not ok:
+        return  # в группе молчим, пока не позвали по имени
+    if not text:
+        return await out(m)("Да? 🙂")
+    if is_group(m) and MOD_RE.search(raw) and await try_moderate(m, raw):
+        return
+    await handle_text(m, state, text)
+
+
+@router.channel_post(F.text)
+async def msg_channel(m: Message):
+    """Канал: откликаемся, если админ написал пост с именем бота."""
+    if not NAME_RE.search(m.text):
+        return
+    text = NAME_START_RE.sub("", m.text).strip() or m.text
+    state = FSMContext(STORAGE, StorageKey(m.bot.id, m.chat.id, m.chat.id))
+    await handle_text(m, state, text)
 
 
 @router.message(F.voice | F.audio)
 async def msg_voice(m: Message, state: FSMContext):
-    if not allowed(m.from_user.id):
-        return await m.answer("⛔ Нет доступа.")
+    if not allowed(who(m)):
+        return None if is_group(m) else await m.answer("⛔ Нет доступа.")
+    if is_group(m):  # в группе слушаем только голосовые-ответы боту
+        me = await m.bot.me()
+        rt = m.reply_to_message
+        if not (rt and rt.from_user and rt.from_user.id == me.id):
+            return
     media = m.voice or m.audio
     if (media.duration or 0) > 300 or (media.file_size or 0) > 19_000_000:
         r = await m.answer("⚠️ Голосовое слишком длинное (максимум 5 минут).")
@@ -778,7 +1169,7 @@ async def health(_):
 
 async def main():
     bot = Bot(BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
-    dp = Dispatcher(storage=MemoryStorage())
+    dp = Dispatcher(storage=STORAGE)
     dp.include_router(router)
 
     app = web.Application()
@@ -797,6 +1188,18 @@ async def main():
             BotCommand(command="help", description="Помощь"),
         ]
     )
+    try:
+        await bot.set_my_commands(
+            [BotCommand(command=c, description=d) for c, d in (
+                ("ban", "Заблокировать"), ("unban", "Разблокировать"), ("kick", "Исключить"),
+                ("mute", "Мут"), ("unmute", "Снять мут"), ("warn", "Предупреждение"),
+                ("del", "Удалить сообщение"), ("purge", "Удалить пачку сообщений"),
+                ("pin", "Закрепить"), ("lock", "Закрыть чат"), ("unlock", "Открыть чат"), ("mod", "Справка"),
+            )],
+            scope=BotCommandScopeAllChatAdministrators(),
+        )
+    except Exception:
+        pass
     await dp.start_polling(bot)
 
 
