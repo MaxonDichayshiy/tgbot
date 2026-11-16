@@ -1,12 +1,85 @@
 [
-  {"name": "gemini", "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/", "model": "gemini-3.5-flash-lite", "key_env": "GEMINI_API_KEY", "ctx": 30000},
-  {"name": "gemini-flash", "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/", "model": "gemini-3.8-flash", "key_env": "GEMINI_API_KEY", "ctx": 30000},
-  {"name": "gemini-3-preview", "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/", "model": "gemini-3-flash-preview", "key_env": "GEMINI_API_KEY", "ctx": 30000},
-  {"name": "groq", "base_url": "https://api.groq.com/openai/v1", "model": "llama-3.3-70b-versatile", "key_env": "GROQ_API_KEY", "ctx": 8000},
-  {"name": "mistral", "base_url": "https://api.mistral.ai/v1", "model": "mistral-small-latest", "key_env": "MISTRAL_API_KEY", "ctx": 30000},
-  {"name": "cerebras", "base_url": "https://api.cerebras.ai/v1", "model": "gpt-oss-120b", "key_env": "CEREBRAS_API_KEY", "ctx": 8000},
-  {"name": "openrouter", "base_url": "https://openrouter.ai/api/v1", "model": "google/gemma-4-31b-it:free", "key_env": "OPENROUTER_API_KEY", "ctx": 8000},
-  {"name": "nvidia", "base_url": "https://integrate.api.nvidia.com/v1", "model": "meta/llama-3.3-70b-instruct", "key_env": "NVIDIA_API_KEY", "ctx": 8000},
-  {"name": "sambanova", "base_url": "https://api.sambanova.ai/v1", "model": "Meta-Llama-3.3-70B-Instruct", "key_env": "SAMBANOVA_API_KEY", "ctx": 8000},
-  {"name": "deepseek", "base_url": "https://api.deepseek.com", "model": "deepseek-chat", "key_env": "DEEPSEEK_API_KEY", "ctx": 30000}
+  {
+    "name": "gemini",
+    "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
+    "model": "gemini-3.5-flash-lite",
+    "key_env": "GEMINI_API_KEY",
+    "ctx": 30000,
+    "vision": true
+  },
+  {
+    "name": "gemini-flash",
+    "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
+    "model": "gemini-3.8-flash",
+    "key_env": "GEMINI_API_KEY",
+    "ctx": 30000,
+    "vision": true
+  },
+  {
+    "name": "gemini-3-preview",
+    "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
+    "model": "gemini-3-flash-preview",
+    "key_env": "GEMINI_API_KEY",
+    "ctx": 30000,
+    "vision": true
+  },
+  {
+    "name": "groq",
+    "base_url": "https://api.groq.com/openai/v1",
+    "model": "llama-3.3-70b-versatile",
+    "key_env": "GROQ_API_KEY",
+    "ctx": 8000
+  },
+  {
+    "name": "groq-vision",
+    "base_url": "https://api.groq.com/openai/v1",
+    "model": "meta-llama/llama-4-scout-17b-16e-instruct",
+    "key_env": "GROQ_API_KEY",
+    "ctx": 8000,
+    "vision": true
+  },
+  {
+    "name": "mistral",
+    "base_url": "https://api.mistral.ai/v1",
+    "model": "mistral-small-latest",
+    "key_env": "MISTRAL_API_KEY",
+    "ctx": 30000,
+    "vision": true
+  },
+  {
+    "name": "cerebras",
+    "base_url": "https://api.cerebras.ai/v1",
+    "model": "gpt-oss-120b",
+    "key_env": "CEREBRAS_API_KEY",
+    "ctx": 8000
+  },
+  {
+    "name": "openrouter",
+    "base_url": "https://openrouter.ai/api/v1",
+    "model": "google/gemma-4-31b-it:free",
+    "key_env": "OPENROUTER_API_KEY",
+    "ctx": 8000,
+    "vision": true
+  },
+  {
+    "name": "nvidia",
+    "base_url": "https://integrate.api.nvidia.com/v1",
+    "model": "meta/llama-3.3-70b-instruct",
+    "key_env": "NVIDIA_API_KEY",
+    "ctx": 8000
+  },
+  {
+    "name": "sambanova",
+    "base_url": "https://api.sambanova.ai/v1",
+    "model": "Meta-Llama-3.3-70B-Instruct",
+    "key_env": "SAMBANOVA_API_KEY",
+    "ctx": 8000
+  },
+  {
+    "name": "deepseek",
+    "base_url": "https://api.deepseek.com",
+    "model": "deepseek-chat",
+    "key_env": "DEEPSEEK_API_KEY",
+    "ctx": 30000
+  }
 ]

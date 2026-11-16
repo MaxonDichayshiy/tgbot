@@ -21,15 +21,19 @@ from aiogram.exceptions import TelegramAPIError
 from aiogram.filters import Command, CommandObject, CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.fsm.storage.base import StorageKey
+from aiogram.fsm.storage.base import BaseStorage, StorageKey
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import (
     BotCommand,
     BotCommandScopeAllChatAdministrators,
     BufferedInputFile,
+    CallbackQuery,
     ChatPermissions,
+    InlineKeyboardButton,
+    InputMediaAudio,
     Message,
 )
+from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiohttp import web
 from openai import (
     APIConnectionError,
@@ -55,8 +59,100 @@ CF_MODEL = os.getenv("CF_IMAGE_MODEL", "@cf/black-forest-labs/flux-1-schnell")
 KEEP_LAST = 4  # сколько последних реплик оставлять дословно при сжатии
 
 SC = json.loads((BASE / "scenario.json").read_text(encoding="utf-8"))
+# ================= постоянное хранилище (Upstash Redis, бесплатно) =================
+UP_URL = os.getenv("UPSTASH_REDIS_REST_URL", "").rstrip("/")
+UP_TOKEN = os.getenv("UPSTASH_REDIS_REST_TOKEN", "")
+TTL = 90 * 24 * 3600  # данные неактивных чатов сами удаляются через 90 дней
+ERR = object()
+
+
+class KV:
+    """Тонкий клиент Upstash REST. Без ключей — выключен, бот работает в памяти, как раньше."""
+
+    enabled = bool(UP_URL and UP_TOKEN)
+    _sess = None
+    _tasks: set = set()
+
+    @classmethod
+    async def cmd(cls, *args):
+        if not cls.enabled:
+            return ERR
+        try:
+            if cls._sess is None or cls._sess.closed:
+                cls._sess = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10))
+            async with cls._sess.post(
+                UP_URL, headers={"Authorization": f"Bearer {UP_TOKEN}"}, json=[str(a) for a in args]
+            ) as r:
+                data = await r.json(content_type=None)
+                if r.status != 200 or "error" in data:
+                    log.warning("upstash %s: %s", args[0], str(data)[:150])
+                    return ERR
+                return data.get("result")
+        except Exception as e:  # noqa
+            log.warning("upstash %s failed: %s", args[0], e)
+            return ERR
+
+    @classmethod
+    def bg(cls, *args):
+        """Записать в фоне, не задерживая ответ пользователю."""
+        if cls.enabled:
+            t = asyncio.create_task(cls.cmd(*args))
+            cls._tasks.add(t)
+            t.add_done_callback(cls._tasks.discard)
+
+
+class PersistentStorage(BaseStorage):
+    """Состояния и данные диалогов (история, резюме, /prompt) переживают перезапуски.
+    Чтение один раз с сервера, дальше из памяти; запись — сразу и в память, и на сервер,
+    поэтому расход бесплатного лимита (500 тыс. команд/мес.) небольшой."""
+
+    def __init__(self):
+        self._state, self._data, self._seen = {}, {}, set()
+
+    @staticmethod
+    def _k(key: StorageKey, part: str) -> str:
+        return f"fsm:{key.chat_id}:{key.user_id}:{part}"
+
+    async def set_state(self, key: StorageKey, state=None) -> None:
+        v = state.state if hasattr(state, "state") else state
+        k = self._k(key, "state")
+        self._state[k] = v
+        self._seen.add(k)
+        await (KV.cmd("SET", k, v, "EX", TTL) if v else KV.cmd("DEL", k))
+
+    async def get_state(self, key: StorageKey):
+        k = self._k(key, "state")
+        if k not in self._seen:
+            raw = await KV.cmd("GET", k)
+            if raw is not ERR:
+                self._state[k] = raw
+                self._seen.add(k)
+        return self._state.get(k)
+
+    async def set_data(self, key: StorageKey, data) -> None:
+        k = self._k(key, "data")
+        self._data[k] = dict(data)
+        self._seen.add(k)
+        await (KV.cmd("SET", k, json.dumps(data, ensure_ascii=False, default=str), "EX", TTL) if data else KV.cmd("DEL", k))
+
+    async def get_data(self, key: StorageKey):
+        k = self._k(key, "data")
+        if k not in self._seen:
+            raw = await KV.cmd("GET", k)
+            if raw is not ERR:
+                try:
+                    self._data[k] = json.loads(raw) if raw else {}
+                except Exception:
+                    self._data[k] = {}
+                self._seen.add(k)
+        return dict(self._data.get(k, {}))
+
+    async def close(self) -> None:
+        pass
+
+
 router = Router()
-STORAGE = MemoryStorage()
+STORAGE = PersistentStorage() if KV.enabled else MemoryStorage()
 BOT_NAME = "Слопчик"
 
 
@@ -66,6 +162,7 @@ class Provider:
         self.name = c["name"]
         self.model = c["model"]
         self.base_url = c["base_url"]
+        self.vision = bool(c.get("vision", False))  # понимает изображения
         self.ctx = int(c.get("ctx", 8000))  # лимит контекста в токенах
         self.client = AsyncOpenAI(
             api_key=key, base_url=c["base_url"], max_retries=0, timeout=60
@@ -95,8 +192,14 @@ def load_providers() -> list:
 PROVIDERS = load_providers()
 
 
+def _clen(c) -> int:
+    if isinstance(c, str):
+        return len(c) // 3
+    return sum(len(x.get("text", "")) // 3 if x.get("type") == "text" else 1200 for x in c)  # картинка ≈ 1200 токенов
+
+
 def est_tokens(msgs: list) -> int:
-    return sum(len(m["content"]) // 3 + 8 for m in msgs)
+    return sum(_clen(m["content"]) + 8 for m in msgs)
 
 
 def fit(messages: list, limit: int) -> list:
@@ -118,11 +221,13 @@ def fit(messages: list, limit: int) -> list:
     return [system] + kept
 
 
-async def ask_llm(messages: list):
-    """Возвращает (текст, имя_провайдера) или (None, None), если все недоступны."""
-    ready = [p for p in PROVIDERS if p.ready]
+async def ask_llm(messages: list, vision: bool = False):
+    """Возвращает (текст, имя_провайдера) или (None, None), если все недоступны.
+    vision=True — только нейросети, которые понимают изображения."""
+    pool = [p for p in PROVIDERS if p.vision or not vision]
+    ready = [p for p in pool if p.ready]
     if not ready:  # все в «карантине» — пробуем тот, что освободится первым
-        ready = sorted(PROVIDERS, key=lambda p: p.down_until)[:1]
+        ready = sorted(pool, key=lambda p: p.down_until)[:1]
     for p in ready:
         try:
             r = await p.client.chat.completions.create(
@@ -146,6 +251,8 @@ async def ask_llm(messages: list):
             if any(w in msg for w in ("context", "length", "too long", "token")):
                 p.ctx = int(p.ctx * 0.7)  # запомним: контекст у него меньше
                 log.warning("provider %s: ctx lowered to %s", p.name, p.ctx)
+            elif vision:
+                log.info("provider %s не принял изображение: %s", p.name, msg[:120])  # без бана: для текста он годится
             else:
                 p.ban(300, f"400: {msg[:120]}")
         except APIStatusError as e:
@@ -448,13 +555,100 @@ async def search_music(sess, q: str) -> list:
     j = await _json(sess, f"https://api.deezer.com/search?q={quote(q)}&limit=5")
     for t in (j or {}).get("data", []):
         if t.get("preview"):
-            out.append({"title": t["title"], "artist": t["artist"]["name"], "preview": t["preview"], "link": t.get("link", ""), "ext": "mp3"})
+            out.append({"title": t["title"], "artist": t["artist"]["name"], "preview": t["preview"], "link": t.get("link", ""),
+                        "ext": "mp3", "cover": (t.get("album") or {}).get("cover_medium", "")})
     if not out:
         j = await _json(sess, f"https://itunes.apple.com/search?term={quote(q)}&entity=song&limit=5")
         for t in (j or {}).get("results", []):
             if t.get("previewUrl"):
-                out.append({"title": t["trackName"], "artist": t["artistName"], "preview": t["previewUrl"], "link": t.get("trackViewUrl", ""), "ext": "m4a"})
+                out.append({"title": t["trackName"], "artist": t["artistName"], "preview": t["previewUrl"], "link": t.get("trackViewUrl", ""),
+                            "ext": "m4a", "cover": t.get("artworkUrl100", "")})
+    for t in out:
+        t["yt"] = "https://www.youtube.com/results?search_query=" + quote(f'{t["artist"]} {t["title"]}')
     return out
+
+
+MUSIC: dict = {}  # key -> {"tracks": [...]} для кнопок ⏮ ⏭
+
+
+def music_kb(key: str, i: int, n: int, t: dict):
+    b = InlineKeyboardBuilder()
+    if n > 1:
+        b.row(
+            InlineKeyboardButton(text="⏮", callback_data=f"mus:{key}:{(i - 1) % n}"),
+            InlineKeyboardButton(text=f"{i + 1}/{n}", callback_data="mus:noop:0"),
+            InlineKeyboardButton(text="⏭", callback_data=f"mus:{key}:{(i + 1) % n}"),
+        )
+    links = []
+    if t.get("link", "").startswith("http"):
+        links.append(InlineKeyboardButton(text="🎧 Слушать полностью", url=t["link"]))
+    links.append(InlineKeyboardButton(text="▶️ YouTube", url=t["yt"]))
+    b.row(*links)
+    return b.as_markup()
+
+
+async def track_media(sess, t: dict):
+    """(аудио, обложка) трека; обложка нужна плееру Telegram."""
+    data = await _fetch(sess, t["preview"], ("audio/",), 15_000_000)
+    thumb = await _fetch(sess, t["cover"], ("image/",), 200_000) if t.get("cover") else None
+    return data, thumb
+
+
+def _audio_kwargs(t: dict, thumb):
+    kw = dict(title=t["title"][:64], performer=t["artist"][:64], duration=30)
+    if thumb:
+        kw["thumbnail"] = BufferedInputFile(thumb, filename="cover.jpg")
+    return kw
+
+
+async def send_music(m: Message, sess, q: str) -> bool:
+    tracks = (await search_music(sess, q))[:8]
+    for i, t in enumerate(tracks):
+        data, thumb = await track_media(sess, t)
+        if not data:
+            continue
+        key = f"{random.randint(10**5, 10**6 - 1)}"
+        if len(MUSIC) > 200:
+            MUSIC.pop(next(iter(MUSIC)))
+        MUSIC[key] = {"tracks": tracks}
+        try:
+            await out(m, "audio")(
+                BufferedInputFile(data, filename=f'{t["artist"]} - {t["title"]}.{t["ext"]}'),
+                caption="🎧 Превью 30 с — полную версию слушайте по кнопке", reply_markup=music_kb(key, i, len(tracks), t),
+                **_audio_kwargs(t, thumb),
+            )
+            return True
+        except Exception as e:  # noqa
+            log.info("audio send failed: %s", e)
+    return False
+
+
+@router.callback_query(F.data.startswith("mus:"))
+async def cb_music(c: CallbackQuery):
+    _, key, idx = c.data.split(":")
+    if key == "noop":
+        return await c.answer()
+    entry = MUSIC.get(key)
+    if not entry:
+        return await c.answer("Список устарел — запросите музыку заново", show_alert=True)
+    tracks, i = entry["tracks"], int(idx) % len(entry["tracks"])
+    t = tracks[i]
+    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=60)) as sess:
+        data, thumb = await track_media(sess, t)
+    if not data:
+        return await c.answer("Не удалось загрузить трек", show_alert=True)
+    try:
+        await c.message.edit_media(
+            InputMediaAudio(
+                media=BufferedInputFile(data, filename=f'{t["artist"]} - {t["title"]}.{t["ext"]}'),
+                caption="🎧 Превью 30 с — полную версию слушайте по кнопке", **_audio_kwargs(t, thumb),
+            ),
+            reply_markup=music_kb(key, i, len(tracks), t),
+        )
+        await c.answer()
+    except Exception as e:  # noqa
+        log.info("edit_media failed: %s", e)
+        await c.answer("Не получилось заменить трек", show_alert=True)
 
 
 async def run_tool(m: Message, state: FSMContext, tool: str, q: str):
@@ -481,20 +675,7 @@ async def run_tool(m: Message, state: FSMContext, tool: str, q: str):
                     except Exception as e:  # Telegram отклонил файл — пробуем следующий
                         log.info("send failed: %s", e)
             elif tool == "music":
-                for t in (await search_music(sess, q))[:3]:
-                    data = await _fetch(sess, t["preview"], ("audio/",), 15_000_000)
-                    if not data:
-                        continue
-                    link = f'<a href="{html.escape(t["link"])}">Слушать полностью</a> · ' if t["link"] else ""
-                    try:
-                        await out(m, "audio")(
-                            BufferedInputFile(data, filename=f'{t["artist"]} - {t["title"]}.{t["ext"]}'),
-                            title=t["title"], performer=t["artist"], caption=f"🎧 {link}превью 30 с",
-                        )
-                        ok = True
-                        break
-                    except Exception as e:  # noqa
-                        log.info("audio send failed: %s", e)
+                ok = await send_music(m, sess, q)
             elif tool == "video":
                 try:
                     res = await asyncio.to_thread(_ddg, "videos", q)
@@ -510,6 +691,29 @@ async def run_tool(m: Message, state: FSMContext, tool: str, q: str):
     if not ok:
         err = await out(m)(f"🔍 Ничего не нашёл по запросу «{esc(q[:100])}». Попробуйте переформулировать.")
         await track(state, err)
+
+
+# ================= фото от пользователя =================
+PHOTO_DEFAULT_Q = "Опиши, что на фото. Если на нём текст, задание, чертёж или вопрос — разбери и ответь."
+NO_VISION_TEXT = ("⚠️ Сейчас нет доступной нейросети, понимающей фото. Нужен ключ Gemini "
+                  "(или Mistral) в настройках сервиса.")
+
+
+async def vision_reply(summary: str, history: list, custom: str, text: str, data: bytes, mime: str = "image/jpeg"):
+    """Ответ по фото. В историю кладём только текст («[фото] …»), картинка живёт один запрос."""
+    summary, history = await compact(summary, history, custom)
+    b64 = base64.b64encode(data).decode()
+    vmsg = {"role": "user", "content": [
+        {"type": "text", "text": text or PHOTO_DEFAULT_Q},
+        {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64}"}},
+    ]}
+    reply, prov = await ask_llm(build(summary, history, custom) + [vmsg], vision=True)
+    if reply:
+        history = history + [
+            {"role": "user", "content": f"[Пользователь прислал фото] {text}".strip()},
+            {"role": "assistant", "content": reply},
+        ]
+    return reply, prov, summary, history
 
 # ================= UI-хелперы =================
 class Flow(StatesGroup):
@@ -770,9 +974,14 @@ def remember(chat_id: int, u):
     if len(SEEN_ID) > 5000:
         SEEN_ID.clear()
         SEEN_NAME.clear()
-    SEEN_ID[(chat_id, u.id)] = u.full_name
-    if u.username:
+        KV.bg("DEL", "seen_id")
+        KV.bg("DEL", "seen_name")
+    if SEEN_ID.get((chat_id, u.id)) != u.full_name:
+        SEEN_ID[(chat_id, u.id)] = u.full_name
+        KV.bg("HSET", "seen_id", f"{chat_id}:{u.id}", u.full_name)
+    if u.username and SEEN_NAME.get((chat_id, u.username.lower())) != u.id:
         SEEN_NAME[(chat_id, u.username.lower())] = u.id
+        KV.bg("HSET", "seen_name", f"{chat_id}:{u.username.lower()}", u.id)
 
 
 class SeenMiddleware(BaseMiddleware):
@@ -876,13 +1085,16 @@ async def _exec(m: Message, action: str, tid, tname, minutes, reason, count) -> 
         n = WARNS.get((cid, tid), 0) + 1
         if n >= WARN_LIMIT:
             WARNS.pop((cid, tid), None)
+            KV.bg("HDEL", "warns", f"{cid}:{tid}")
             await bot.restrict_chat_member(cid, tid, permissions=ChatPermissions(can_send_messages=False),
                                            until_date=_until(WARN_MUTE_MIN))
             return f"⚠️ {who_}: {WARN_LIMIT}/{WARN_LIMIT} предупреждений — мут на {fmt_min(WARN_MUTE_MIN)}.{why}"
         WARNS[(cid, tid)] = n
+        KV.bg("HSET", "warns", f"{cid}:{tid}", n)
         return f"⚠️ {who_}: предупреждение {n}/{WARN_LIMIT}.{why}"
     if action == "unwarn":
         WARNS.pop((cid, tid), None)
+        KV.bg("HDEL", "warns", f"{cid}:{tid}")
         return f"✅ Предупреждения {who_} сняты."
     if action == "warns":
         return f"ℹ️ У {who_}: {WARNS.get((cid, tid), 0)}/{WARN_LIMIT} предупреждений."
@@ -912,10 +1124,15 @@ async def _exec(m: Message, action: str, tid, tname, minutes, reason, count) -> 
         return "📌 Откреплено."
     if action == "lock":
         LOCKED[cid] = await _chat_perms(bot, cid)
+        try:
+            KV.bg("HSET", "locked", cid, LOCKED[cid].model_dump_json(exclude_none=True))
+        except Exception as e:  # сбой записи в базу не должен ломать модерацию
+            log.warning("lock persist: %s", e)
         await bot.set_chat_permissions(cid, ChatPermissions(can_send_messages=False))
         return "🔒 Чат закрыт для обычных участников. Открыть: /unlock"
     if action == "unlock":
         await bot.set_chat_permissions(cid, LOCKED.pop(cid, None) or _full_perms())
+        KV.bg("HDEL", "locked", cid)
         return "🔓 Чат снова открыт."
     return ""
 
@@ -1139,6 +1356,35 @@ async def msg_channel(m: Message):
     await handle_text(m, state, text)
 
 
+@router.message(F.photo | (F.document & F.document.mime_type.startswith("image/")))
+async def msg_photo(m: Message, state: FSMContext):
+    if not allowed(who(m)):
+        return None if is_group(m) else await m.answer("⛔ Нет доступа.")
+    ok, text, _ = await addressed(m, m.caption or "")
+    if not ok:
+        return  # в группе реагируем на фото только с обращением по имени или ответом боту
+    if m.photo:
+        file_id, mime = m.photo[-1].file_id, "image/jpeg"
+    else:
+        file_id, mime = m.document.file_id, m.document.mime_type
+        if (m.document.file_size or 0) > 8_000_000:
+            r = await out(m)("⚠️ Файл слишком большой (до 8 МБ). Пришлите фото обычным способом.")
+            return await track(state, r)
+    d = await state.get_data()
+    async with typing(m):
+        buf = await m.bot.download(file_id)
+        reply, prov, summary, history = await vision_reply(
+            d.get("summary", ""), d.get("history", []), d.get("custom", ""), text, buf.read(), mime
+        )
+    if not reply:
+        await sweep(m.bot, m.chat.id, state)
+        err = await out(m)(NO_VISION_TEXT + "\n" + fail_text(), parse_mode=None)
+        return await track(state, err)
+    await state.update_data(history=history, summary=summary)
+    await send_result(m, reply, prov)
+    await sweep(m.bot, m.chat.id, state)
+
+
 @router.message(F.voice | F.audio)
 async def msg_voice(m: Message, state: FSMContext):
     if not allowed(who(m)):
@@ -1167,6 +1413,35 @@ async def health(_):
     return web.Response(text="ok")
 
 
+async def load_persistent():
+    """Поднимает из Upstash предупреждения, закрытые чаты и известных участников."""
+    if not KV.enabled:
+        log.info("storage: память (Upstash не подключён)")
+        return
+
+    async def pairs(name):
+        r = await KV.cmd("HGETALL", name)
+        if isinstance(r, dict):
+            return list(r.items())
+        return list(zip(r[0::2], r[1::2])) if isinstance(r, list) else []
+
+    try:
+        for f, v in await pairs("warns"):
+            c, u = f.split(":", 1)
+            WARNS[(int(c), int(u))] = int(v)
+        for f, v in await pairs("locked"):
+            LOCKED[int(f)] = ChatPermissions.model_validate_json(v)
+        for f, v in await pairs("seen_id"):
+            c, u = f.split(":", 1)
+            SEEN_ID[(int(c), int(u))] = v
+        for f, v in await pairs("seen_name"):
+            c, u = f.split(":", 1)
+            SEEN_NAME[(int(c), u)] = int(v)
+        log.info("storage: Upstash; warns=%s locked=%s seen=%s", len(WARNS), len(LOCKED), len(SEEN_ID))
+    except Exception as e:  # noqa
+        log.warning("load_persistent: %s", e)
+
+
 async def main():
     bot = Bot(BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     dp = Dispatcher(storage=STORAGE)
@@ -1178,6 +1453,7 @@ async def main():
     await runner.setup()
     await web.TCPSite(runner, "0.0.0.0", PORT).start()
 
+    await load_persistent()
     await bot.delete_webhook(drop_pending_updates=True)
     await bot.set_my_commands(
         [
@@ -1205,6 +1481,8 @@ async def main():
         await dp.start_polling(bot)
     finally:
         vk_task.cancel()
+        if KV._sess and not KV._sess.closed:
+            await KV._sess.close()
 
 
 async def run_vk():

@@ -1,11 +1,13 @@
 """Сообщения сообщества ВК. Тот же Слопчик, что в Telegram: те же нейросети, картинки, голос и поиск."""
 import asyncio
+import json
 import logging
 import os
 import random
 import re
 import sys
 import time
+from urllib.parse import quote
 
 import aiohttp
 
@@ -223,7 +225,46 @@ class Vk:
                         except Exception:
                             log.exception("vk update")
 
+    async def load(self, peer: int):
+        """Диалог из Upstash (если подключён) — после перезапуска история не теряется."""
+        kv = getattr(self.c, "KV", None)
+        if not kv or not kv.enabled or peer in self.box:
+            return
+        raw = await kv.cmd("GET", f"vk:{peer}")
+        if raw is self.c.ERR:
+            return
+        try:
+            d = json.loads(raw) if raw else {}
+        except Exception:
+            d = {}
+        st = self.st(peer)
+        st["history"] = d.get("history", [])
+        st["summary"] = d.get("summary", "")
+        st["custom"] = d.get("custom", "")
+
+    def save(self, peer: int):
+        kv = getattr(self.c, "KV", None)
+        if not kv or not kv.enabled or peer not in self.box:
+            return
+        st = self.box[peer]
+        data = {"history": st["history"], "summary": st["summary"], "custom": st["custom"]}
+        kv.bg("SET", f"vk:{peer}", json.dumps(data, ensure_ascii=False), "EX", self.c.TTL)
+
     async def on_update(self, upd: dict):
+        if upd.get("type") != "message_new":
+            return
+        obj = upd.get("object") or {}
+        m_ = obj.get("message") if isinstance(obj.get("message"), dict) else obj
+        peer = int(m_.get("peer_id") or m_.get("from_id") or 0) if isinstance(m_, dict) else 0
+        if peer:
+            await self.load(peer)
+        try:
+            await self._on_update(upd)
+        finally:
+            if peer:
+                self.save(peer)
+
+    async def _on_update(self, upd: dict):
         if upd.get("type") != "message_new":
             return
         obj = upd.get("object") or {}
@@ -235,7 +276,10 @@ class Vk:
             return
         peer = int(msg.get("peer_id") or from_id)
         text = MENTION.sub(r"\1", msg.get("text") or "").strip()
-        log.info("vk: сообщение от %s в %s: %s", from_id, peer, (text or "без текста")[:120])
+        if os.getenv("VK_LOG_TEXT") == "1":  # текст сообщений в логи — только для отладки
+            log.info("vk: сообщение от %s в %s: %s", from_id, peer, (text or "без текста")[:120])
+        else:
+            log.info("vk: сообщение в %s (%s симв.)", peer, len(text))
         reply = msg.get("reply_message") or {}
         reply_from = int(reply.get("from_id") or 0)
         atts = msg.get("attachments") or []
@@ -247,6 +291,9 @@ class Vk:
         if not vk_allowed(from_id):
             await self.send(peer, "⛔ Нет доступа.")
             return
+        photos = [a["photo"] for a in atts if a.get("type") == "photo"]
+        if photos:
+            return await self.on_photo(peer, text, photos[0], reply_from)
         voices = [a["audio_message"] for a in atts if a.get("type") == "audio_message"]
         if not text and voices:
             return await self.on_voice(peer, from_id, voices[0], mid, reply_from)
@@ -329,6 +376,46 @@ class Vk:
             return
         sent = await self.send(peer, "Неизвестная команда. Список: /help")
         self.track(peer, mid, sent)
+
+    async def on_photo(self, peer, text, photo, reply_from):
+        """Фото от пользователя: нейросеть с поддержкой изображений отвечает по картинке и подписи."""
+        c = self.c
+        ok, text = self.addressed(peer, text, reply_from)
+        if not ok:
+            return
+        sizes = photo.get("sizes") or []
+        best = max(sizes, key=lambda s: (s.get("width") or 0) * (s.get("height") or 0), default=None)
+        if not best or not best.get("url"):
+            return
+        try:
+            async with self.sess.get(best["url"], timeout=aiohttp.ClientTimeout(total=40)) as r:
+                data = await r.content.read(8_000_001)
+        except Exception as e:  # noqa
+            log.info("vk photo download: %s", e)
+            return
+        if not data or len(data) > 8_000_000:
+            sent = await self.send(peer, "⚠️ Фото слишком большое или не загрузилось.")
+            self.track(peer, sent)
+            return
+        st = self.st(peer)
+        spin = await self.busy(peer)
+        try:
+            reply, prov, summary, history = await c.vision_reply(
+                st["summary"], st["history"], st["custom"], text if not text.startswith("/") else "", data
+            )
+        finally:
+            spin.cancel()
+        if not reply:
+            await self.sweep(peer)
+            sent = await self.send(peer, c.NO_VISION_TEXT + "\n" + c.fail_text())
+            self.track(peer, sent)
+            return
+        st["history"], st["summary"] = history, summary
+        if prov and c.SHOW_PROVIDER:
+            reply += f"\n\n⚙️ {prov}"
+        for part in c.chunks(reply, 3500):
+            await self.send(peer, part)
+        await self.sweep(peer)
 
     async def on_voice(self, peer, from_id, voice, mid, reply_from):
         if peer >= CHAT and reply_from != -self.group_id:
@@ -434,16 +521,23 @@ class Vk:
                         ok = True
                         break
             elif tool == "music":
-                for t in (await c.search_music(sess, q))[:3]:
-                    data = await c._fetch(sess, t["preview"], ("audio/",), 8_000_000)
+                for t in (await c.search_music(sess, q))[:5]:
+                    data = await c._fetch(sess, t["preview"], ("audio/",), 15_000_000)
                     if not data:
                         continue
-                    att = await self.upload(peer, data, "preview.mp3", "doc")
-                    link = t["link"] or ""
-                    cap = f"🎧 {t['artist']} — {t['title']}\nпревью 30 с" + (f"\n{link}" if link else "")
+                    name = re.sub(r'[\\/:*?"<>|]', "", f"{t['artist']} - {t['title']}")[:70] + "." + t["ext"]
+                    att = await self.upload(peer, data, name, "doc")
+                    vk_music = "https://vk.com/audio?q=" + quote(f"{t['artist']} {t['title']}")
+                    cap = (f"🎧 {t['artist']} — {t['title']}\nФайл — превью 30 с."
+                           f"\nВ VK Музыке целиком: {vk_music}"
+                           + (f"\nDeezer: {t['link']}" if t.get("link") else ""))
                     if att and await self.send(peer, cap, att):
                         ok = True
                         break
+                if not ok:  # файл не загрузился — хотя бы ссылка на полную версию
+                    for t in (await c.search_music(sess, q))[:1]:
+                        link = "https://vk.com/audio?q=" + quote(f"{t['artist']} {t['title']}")
+                        ok = bool(await self.send(peer, f"🎧 {t['artist']} — {t['title']}\nСлушать в VK Музыке: {link}"))
             elif tool == "video":
                 try:
                     res = await asyncio.to_thread(c._ddg, "videos", q)
