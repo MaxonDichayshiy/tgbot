@@ -1,5 +1,6 @@
 import asyncio
 import base64
+import contextvars
 import html
 import json
 import logging
@@ -53,6 +54,8 @@ ALLOWED = {int(x) for x in os.getenv("ALLOWED_USERS", "").split(",") if x.strip(
 SHOW_PROVIDER = os.getenv("SHOW_PROVIDER", "0") == "1"
 SHOW_TRANSCRIPT = os.getenv("SHOW_TRANSCRIPT", "0") == "1"
 COMPACT_AT = int(os.getenv("COMPACT_AT", "3500"))  # ~токенов, после чего сжимаем историю
+AUTO_CLEAN = os.getenv("AUTO_CLEAN", "1") == "1"  # в личке оставлять только последний вопрос и ответ
+CLEAN_DEPTH = int(os.getenv("CLEAN_DEPTH", "1000"))  # на сколько сообщений назад чистить при первом разе
 CF_ACCOUNT = os.getenv("CF_ACCOUNT_ID", "")
 CF_TOKEN = os.getenv("CF_API_TOKEN", "")
 CF_MODEL = os.getenv("CF_IMAGE_MODEL", "@cf/black-forest-labs/flux-1-schnell")
@@ -721,6 +724,7 @@ async def run_tool(m: Message, state: FSMContext, tool: str, q: str):
     if not ok:
         err = await out(m)(f"🔍 Ничего не нашёл по запросу «{esc(q[:100])}». Попробуйте переформулировать.")
         await track(state, err)
+    await tidy(m, state)
 
 
 # ================= фото от пользователя =================
@@ -805,7 +809,16 @@ def who(m: Message) -> int:
 def out(m: Message, kind: str = ""):
     """В группах отвечаем реплаем на сообщение, в личке и каналах — обычным сообщением."""
     pre = "reply" if is_group(m) else "answer"
-    return getattr(m, f"{pre}_{kind}" if kind else pre)
+    f = getattr(m, f"{pre}_{kind}" if kind else pre)
+
+    async def call(*a, **k):
+        r = await f(*a, **k)
+        lst = _replies.get()
+        if lst is not None and getattr(r, "message_id", None):
+            lst.append(r.message_id)  # итоговые ответы бота — их при чистке оставляем
+        return r
+
+    return call
 
 
 async def addressed(m: Message, text: str):
@@ -840,6 +853,7 @@ HELP = (
     "/prompt <текст> — задать стиль и роль бота (например: «отвечай кратко, как преподаватель»)\n"
     "/prompt — показать текущую инструкцию, /prompt сброс — вернуть стандартную\n"
     "/image <описание> — нарисовать картинку (можно и просто текстом)\n"
+    "/clean — очистить чат (оставлю только последний вопрос и ответ)\n"
     "/reset — начать новый диалог\n"
     "/status — состояние нейросетей\n"
     "/mod — команды модерации для админов групп"
@@ -1014,6 +1028,71 @@ def remember(chat_id: int, u):
         KV.bg("HSET", "seen_name", f"{chat_id}:{u.username.lower()}", u.id)
 
 
+_replies: contextvars.ContextVar = contextvars.ContextVar("replies", default=None)
+PENDING: dict = {}      # chat -> id сообщений пользователя, которые сейчас обрабатываются
+CLEAN_LOCKS: dict = {}  # chat -> Lock
+_bg: set = set()
+
+
+class TurnMiddleware(BaseMiddleware):
+    """Начало обработки сообщения: заводим список ответов и помечаем сообщение «в работе»."""
+
+    async def __call__(self, handler, event, data):
+        _replies.set([])
+        pend = PENDING.setdefault(event.chat.id, set())
+        pend.add(event.message_id)
+        try:
+            return await handler(event, data)
+        finally:
+            pend.discard(event.message_id)
+
+
+async def _bulk_delete(bot: Bot, chat_id: int, ids: list):
+    """Удаляет пачками, сначала свежие. Старше 48 ч Telegram удалить не даёт — на них останавливаемся."""
+    ids = sorted(ids, reverse=True)
+    dead = 0
+    for i in range(0, len(ids), 100):
+        part = ids[i:i + 100]
+        try:
+            await bot.delete_messages(chat_id, part)
+            dead = 0
+            continue
+        except Exception:
+            pass
+        done = 0
+        for mid in part:
+            try:
+                await bot.delete_message(chat_id, mid)
+                done += 1
+            except Exception:
+                pass
+            await asyncio.sleep(0.03)
+        dead = 0 if done else dead + 1
+        if dead >= 3:
+            break
+
+
+async def tidy(m: Message, state: FSMContext, depth=None):
+    """Личный чат: удаляем всё, кроме последнего вопроса пользователя и ответа бота."""
+    if m.chat.type != "private" or not AUTO_CLEAN:
+        return
+    keep_now = sorted({m.message_id, *(_replies.get() or [])})
+    async with CLEAN_LOCKS.setdefault(m.chat.id, asyncio.Lock()):
+        d = await state.get_data()
+        prev = d.get("keep", [])
+        if prev and max(keep_now) <= max(prev):
+            ids = keep_now  # уже есть более свежий ответ — эту пару убираем
+        else:
+            lo = min(prev) if prev else max(1, m.message_id - (depth or CLEAN_DEPTH))
+            ids = [i for i in range(lo, max(keep_now)) if i not in keep_now]
+            await state.update_data(keep=keep_now, junk=[])
+        pend = PENDING.get(m.chat.id, set()) - {m.message_id}
+        ids = [i for i in ids if i not in pend]
+    t = asyncio.create_task(_bulk_delete(m.bot, m.chat.id, ids))
+    _bg.add(t)
+    t.add_done_callback(_bg.discard)
+
+
 class SeenMiddleware(BaseMiddleware):
     """Запоминает участников чата, чтобы понимать «@username» в командах."""
 
@@ -1029,6 +1108,7 @@ class SeenMiddleware(BaseMiddleware):
 
 
 router.message.outer_middleware(SeenMiddleware())
+router.message.outer_middleware(TurnMiddleware())
 
 
 async def member_of(bot: Bot, chat_id: int, uid: int):
@@ -1272,6 +1352,17 @@ async def cmd_prompt(m: Message, state: FSMContext, command: CommandObject):
     await track(state, m, r)
 
 
+@router.message(Command("clean"))
+async def cmd_clean(m: Message, state: FSMContext):
+    """Полная очистка личного чата (вместе с этой командой). Контекст диалога остаётся."""
+    if m.chat.type != "private":
+        return
+    ids = list(range(max(1, m.message_id - 5000), m.message_id + 1))
+    await _bulk_delete(m.bot, m.chat.id, ids)
+    r = await m.answer("🧹 Чат очищен. Контекст разговора сохранён, сбросить его: /reset")
+    await state.update_data(keep=[], junk=[r.message_id])
+
+
 @router.message(Command("status"))
 async def cmd_status(m: Message, state: FSMContext):
     if ALLOWED and who(m) not in ALLOWED:
@@ -1301,6 +1392,7 @@ async def do_image(m: Message, state: FSMContext, text: str):
     cap = f"🎨 {esc(text[:200])}" + (f"\n<i>⚙️ {info}</i>" if SHOW_PROVIDER else "")
     await out(m, "photo")(BufferedInputFile(data, filename="image.png"), caption=cap)
     await sweep(m.bot, m.chat.id, state)
+    await tidy(m, state)
 
 
 @router.message(Command("image"))
@@ -1359,7 +1451,8 @@ async def handle_text(m: Message, state: FSMContext, text: str, heard: str = "")
     if heard and SHOW_TRANSCRIPT:
         reply = f"🎙 {heard}\n\n{reply}"
     await send_result(m, reply, prov)
-    await sweep(m.bot, m.chat.id, state)  # убираем всё лишнее, остаются вопрос и ответ
+    await sweep(m.bot, m.chat.id, state)  # убираем служебное
+    await tidy(m, state)  # в личке остаются только последний вопрос и ответ
 
 
 @router.message(F.text)
@@ -1413,6 +1506,7 @@ async def msg_photo(m: Message, state: FSMContext):
     await state.update_data(history=history, summary=summary)
     await send_result(m, reply, prov)
     await sweep(m.bot, m.chat.id, state)
+    await tidy(m, state)
 
 
 @router.message(F.voice | F.audio)
@@ -1489,6 +1583,7 @@ async def main():
         [
             BotCommand(command="prompt", description="Задать стиль ответов"),
             BotCommand(command="image", description="Нарисовать картинку"),
+            BotCommand(command="clean", description="Очистить чат"),
             BotCommand(command="reset", description="Новый диалог"),
             BotCommand(command="status", description="Состояние нейросетей"),
             BotCommand(command="help", description="Помощь"),
