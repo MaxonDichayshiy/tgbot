@@ -522,15 +522,18 @@ class Vk:
                         break
             elif tool == "music":
                 for t in (await c.search_music(sess, q))[:5]:
-                    data = await c._fetch(sess, t["preview"], ("audio/",), 15_000_000)
+                    data = await c._fetch(sess, t["preview"], ("audio/",), 45_000_000 if t.get("full") else 15_000_000)
                     if not data:
                         continue
                     name = re.sub(r'[\\/:*?"<>|]', "", f"{t['artist']} - {t['title']}")[:70] + "." + t["ext"]
                     att = await self.upload(peer, data, name, "doc")
                     vk_music = "https://vk.com/audio?q=" + quote(f"{t['artist']} {t['title']}")
-                    cap = (f"🎧 {t['artist']} — {t['title']}\nФайл — превью 30 с."
-                           f"\nВ VK Музыке целиком: {vk_music}"
-                           + (f"\nDeezer: {t['link']}" if t.get("link") else ""))
+                    head = f"🎧 {t['artist']} — {t['title']}\n"
+                    if t.get("full"):
+                        cap = head + "Полный трек (Jamendo, лицензия CC)." + (f"\n{t['link']}" if t.get("link") else "")
+                    else:
+                        cap = (head + "Файл — превью 30 с.\nВ VK Музыке целиком: " + vk_music
+                               + (f"\nDeezer: {t['link']}" if t.get("link") else ""))
                     if att and await self.send(peer, cap, att):
                         ok = True
                         break

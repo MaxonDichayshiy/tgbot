@@ -446,6 +446,7 @@ async def transcribe(audio: bytes):
 # только пользовательские аккаунты. Поэтому бот ходит в те же открытые источники напрямую.
 UA = {"User-Agent": "Mozilla/5.0 (compatible; TgBot/1.0)"}
 GIPHY_KEY = os.getenv("GIPHY_API_KEY", "")
+JAMENDO_ID = os.getenv("JAMENDO_CLIENT_ID", "")
 TENOR_KEY = os.getenv("TENOR_API_KEY", "")
 
 _M_NOUN = (r"(картин\w*|фото\w*|изображени\w*|пикч\w*|мем\w*|обои|гиф\w*|gif\w*|анимаци\w*|песн\w*|трек\w*|"
@@ -550,14 +551,36 @@ async def search_images(sess, q: str, gif: bool) -> list:
     return list(dict.fromkeys(urls))
 
 
+async def search_jamendo(sess, q: str) -> list:
+    """Полные треки со свободной лицензией (Creative Commons). Подходит для жанров, настроения и инди-музыки."""
+    if not JAMENDO_ID:
+        return []
+    j = await _json(sess, "https://api.jamendo.com/v3.0/tracks/?format=json&limit=8&audioformat=mp32&include=musicinfo"
+                          f"&order=relevance&client_id={JAMENDO_ID}&search={quote(q)}")
+    toks = [w for w in re.findall(r"\w+", q.lower()) if len(w) >= 3]
+    res = []
+    for t in (j or {}).get("results", []):
+        if not t.get("audio"):
+            continue
+        hay = (" ".join(str(t.get(k, "")) for k in ("name", "artist_name", "album_name"))
+               + " " + json.dumps(t.get("musicinfo") or {}, ensure_ascii=False)).lower()
+        if toks and sum(w in hay for w in toks) < max(1, (len(toks) + 1) // 2):
+            continue  # не подсовываем случайный трек, когда просили конкретную песню
+        res.append({"title": t.get("name", "Track"), "artist": t.get("artist_name", ""), "preview": t["audio"],
+                    "link": t.get("shareurl", ""), "ext": "mp3", "cover": t.get("image", ""),
+                    "dur": int(t.get("duration") or 0), "full": True, "license": t.get("license_ccurl", "")})
+    return res
+
+
 async def search_music(sess, q: str) -> list:
-    out = []
+    out = await search_jamendo(sess, q)
+    n_full = len(out)
     j = await _json(sess, f"https://api.deezer.com/search?q={quote(q)}&limit=5")
     for t in (j or {}).get("data", []):
         if t.get("preview"):
             out.append({"title": t["title"], "artist": t["artist"]["name"], "preview": t["preview"], "link": t.get("link", ""),
                         "ext": "mp3", "cover": (t.get("album") or {}).get("cover_medium", "")})
-    if not out:
+    if len(out) == n_full:
         j = await _json(sess, f"https://itunes.apple.com/search?term={quote(q)}&entity=song&limit=5")
         for t in (j or {}).get("results", []):
             if t.get("previewUrl"):
@@ -571,6 +594,13 @@ async def search_music(sess, q: str) -> list:
 MUSIC: dict = {}  # key -> {"tracks": [...]} для кнопок ⏮ ⏭
 
 
+def music_caption(t: dict) -> str:
+    if t.get("full"):
+        lic = f"\nЛицензия: {t['license']}" if t.get("license") else ""
+        return f"🎧 Полный трек · Jamendo{lic}"
+    return "🎧 Превью 30 с — полную версию слушайте по кнопке"
+
+
 def music_kb(key: str, i: int, n: int, t: dict):
     b = InlineKeyboardBuilder()
     if n > 1:
@@ -581,7 +611,7 @@ def music_kb(key: str, i: int, n: int, t: dict):
         )
     links = []
     if t.get("link", "").startswith("http"):
-        links.append(InlineKeyboardButton(text="🎧 Слушать полностью", url=t["link"]))
+        links.append(InlineKeyboardButton(text="🔗 Страница трека" if t.get("full") else "🎧 Слушать полностью", url=t["link"]))
     links.append(InlineKeyboardButton(text="▶️ YouTube", url=t["yt"]))
     b.row(*links)
     return b.as_markup()
@@ -589,13 +619,13 @@ def music_kb(key: str, i: int, n: int, t: dict):
 
 async def track_media(sess, t: dict):
     """(аудио, обложка) трека; обложка нужна плееру Telegram."""
-    data = await _fetch(sess, t["preview"], ("audio/",), 15_000_000)
+    data = await _fetch(sess, t["preview"], ("audio/",), 45_000_000 if t.get("full") else 15_000_000)
     thumb = await _fetch(sess, t["cover"], ("image/",), 200_000) if t.get("cover") else None
     return data, thumb
 
 
 def _audio_kwargs(t: dict, thumb):
-    kw = dict(title=t["title"][:64], performer=t["artist"][:64], duration=30)
+    kw = dict(title=t["title"][:64], performer=t["artist"][:64], duration=t.get("dur") or 30)
     if thumb:
         kw["thumbnail"] = BufferedInputFile(thumb, filename="cover.jpg")
     return kw
@@ -614,7 +644,7 @@ async def send_music(m: Message, sess, q: str) -> bool:
         try:
             await out(m, "audio")(
                 BufferedInputFile(data, filename=f'{t["artist"]} - {t["title"]}.{t["ext"]}'),
-                caption="🎧 Превью 30 с — полную версию слушайте по кнопке", reply_markup=music_kb(key, i, len(tracks), t),
+                caption=music_caption(t), reply_markup=music_kb(key, i, len(tracks), t),
                 **_audio_kwargs(t, thumb),
             )
             return True
@@ -641,7 +671,7 @@ async def cb_music(c: CallbackQuery):
         await c.message.edit_media(
             InputMediaAudio(
                 media=BufferedInputFile(data, filename=f'{t["artist"]} - {t["title"]}.{t["ext"]}'),
-                caption="🎧 Превью 30 с — полную версию слушайте по кнопке", **_audio_kwargs(t, thumb),
+                caption=music_caption(t), **_audio_kwargs(t, thumb),
             ),
             reply_markup=music_kb(key, i, len(tracks), t),
         )
