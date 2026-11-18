@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Слопчик">
+<meta name="theme-color" content="#0f1115">
+<link rel="manifest" href="/app/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/app/apple-touch-icon.png">
+<title>Слопчик</title>
+<style>
+:root { --bg:#0f1115; --panel:#171a21; --bubble-bot:#1f2430; --bubble-me:#3b82f6; --text:#e8eaf0; --muted:#8b93a7; --line:#262b36; --accent:#3b82f6; --danger:#ef4444; color-scheme: dark; }
+@media (prefers-color-scheme: light) { :root { --bg:#f4f5f8; --panel:#ffffff; --bubble-bot:#ffffff; --bubble-me:#2f6fed; --text:#15181f; --muted:#6b7385; --line:#e3e6ee; color-scheme: light; } }
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body { margin:0; height:100%; background:var(--bg); color:var(--text); font:16px/1.4 -apple-system, BlinkMacSystemFont, "SF Pro Text", Roboto, sans-serif; }
+#app { display:flex; flex-direction:column; height:100dvh; padding-top:env(safe-area-inset-top); }
+header { display:flex; align-items:center; gap:10px; padding:10px 14px; background:var(--panel); border-bottom:1px solid var(--line); }
+header .logo { width:34px; height:34px; border-radius:10px; }
+header h1 { font-size:17px; margin:0; flex:1; font-weight:650; }
+header small { display:block; font-weight:400; color:var(--muted); font-size:12px; }
+.iconbtn { background:none; border:0; color:var(--text); font-size:22px; padding:6px 8px; border-radius:10px; }
+.iconbtn:active { background:var(--line); }
+#msgs { flex:1; overflow-y:auto; padding:14px 12px 8px; display:flex; flex-direction:column; gap:10px; -webkit-overflow-scrolling:touch; }
+.m { max-width:86%; padding:9px 13px; border-radius:18px; word-wrap:break-word; overflow-wrap:anywhere; }
+.m.bot { background:var(--bubble-bot); border:1px solid var(--line); align-self:flex-start; border-bottom-left-radius:6px; }
+.m.me { background:var(--bubble-me); color:#fff; align-self:flex-end; border-bottom-right-radius:6px; }
+.m img.att { max-width:100%; border-radius:12px; display:block; margin-top:6px; }
+.m audio { width:100%; margin-top:6px; }
+.m .card { margin-top:8px; padding:8px 10px; border:1px solid var(--line); border-radius:12px; }
+.m .card b { display:block; } .m .card span { color:var(--muted); font-size:13px; }
+.m a { color:var(--accent); } .m.me a { color:#fff; }
+.m code { background:rgba(127,127,127,.2); padding:1px 5px; border-radius:6px; font-size:.92em; }
+.m pre { background:rgba(127,127,127,.18); padding:9px; border-radius:10px; overflow-x:auto; margin:6px 0; } .m pre code { background:none; padding:0; }
+.typing { display:flex; gap:4px; padding:12px 14px; } .typing i { width:7px; height:7px; border-radius:50%; background:var(--muted); animation:b 1.1s infinite; } .typing i:nth-child(2){animation-delay:.15s} .typing i:nth-child(3){animation-delay:.3s}
+@keyframes b { 0%,60%,100%{transform:translateY(0);opacity:.5} 30%{transform:translateY(-5px);opacity:1} }
+.hint { text-align:center; color:var(--muted); font-size:13px; padding:20px 20px; }
+form { display:flex; align-items:flex-end; gap:8px; padding:8px 10px calc(8px + env(safe-area-inset-bottom)); background:var(--panel); border-top:1px solid var(--line); }
+#text { flex:1; resize:none; max-height:130px; min-height:42px; padding:10px 14px; font:inherit; font-size:16px; color:var(--text); background:var(--bg); border:1px solid var(--line); border-radius:21px; outline:none; }
+.roundbtn { width:42px; height:42px; border-radius:50%; border:0; background:var(--bg); color:var(--text); font-size:20px; flex:none; border:1px solid var(--line); }
+#send { background:var(--accent); color:#fff; border-color:var(--accent); } #mic.rec { background:var(--danger); color:#fff; border-color:var(--danger); animation:p 1s infinite; }
+@keyframes p { 50%{opacity:.55} }
+#chip { display:none; align-items:center; gap:8px; margin:6px 12px 0; padding:6px 10px; border:1px solid var(--line); border-radius:12px; background:var(--panel); font-size:14px; }
+#chip.on { display:flex; } #chip span { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+#login { position:fixed; inset:0; background:var(--bg); display:none; align-items:center; justify-content:center; padding:24px; z-index:5; }
+#login.on { display:flex; } .card2 { width:100%; max-width:360px; text-align:center; }
+.card2 img { width:84px; height:84px; border-radius:22px; } .card2 h2 { margin:14px 0 4px; } .card2 p { color:var(--muted); margin:0 0 18px; }
+.card2 input { width:100%; padding:13px 14px; font-size:16px; border-radius:14px; border:1px solid var(--line); background:var(--panel); color:var(--text); outline:none; text-align:center; }
+.card2 button { width:100%; margin-top:10px; padding:13px; font-size:16px; border:0; border-radius:14px; background:var(--accent); color:#fff; font-weight:600; } .err { color:var(--danger); min-height:20px; margin-top:8px; font-size:14px; }
+#menu { position:absolute; right:10px; top:calc(54px + env(safe-area-inset-top)); background:var(--panel); border:1px solid var(--line); border-radius:14px; display:none; z-index:4; overflow:hidden; min-width:210px; box-shadow:0 8px 30px rgba(0,0,0,.35); }
+#menu.on { display:block; } #menu button { display:block; width:100%; text-align:left; padding:13px 16px; background:none; border:0; color:var(--text); font-size:16px; border-bottom:1px solid var(--line); } #menu button:last-child { border:0; color:var(--danger); }
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <img class="logo" src="/app/icon-192.png" alt="">
+    <h1>Слопчик<small id="sub">помощник</small></h1>
+    <button class="iconbtn" id="menubtn" aria-label="Меню">⋯</button>
+  </header>
+  <div id="menu">
+    <button id="m-prompt">✍️ Стиль ответов</button>
+    <button id="m-reset">🧹 Новый диалог</button>
+    <button id="m-out">Выйти</button>
+  </div>
+  <div id="msgs"></div>
+  <div id="chip"><span id="chipname"></span><button class="iconbtn" id="chipx" type="button" style="font-size:18px">✕</button></div>
+  <form id="form" autocomplete="off">
+    <button class="roundbtn" id="attach" type="button" aria-label="Прикрепить">📎</button>
+    <input id="file" type="file" accept="image/*,.pdf,.docx,.xlsx,.txt,.md,.csv,.json,.html" hidden>
+    <textarea id="text" rows="1" placeholder="Сообщение" enterkeyhint="send"></textarea>
+    <button class="roundbtn" id="mic" type="button" aria-label="Голос">🎙</button>
+    <button class="roundbtn" id="send" type="submit" aria-label="Отправить">➤</button>
+  </form>
+</div>
+<div id="login">
+  <div class="card2">
+    <img src="/app/icon-192.png" alt="">
+    <h2>Слопчик</h2>
+    <p>Введите код доступа</p>
+    <input id="code" type="password" placeholder="Код" autocomplete="off" autocapitalize="off">
+    <button id="enter">Войти</button>
+    <div class="err" id="err"></div>
+  </div>
+</div>
+<script src="https://telegram.org/js/telegram-web-app.js" async></script>
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const msgs = $("msgs"), textEl = $("text");
+let token = localStorage.getItem("slop_token") || "", busy = false, pending = null, rec = null;
+
+function esc(s) { return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
+function md(src) {
+  const blocks = [];
+  let t = esc(src).replace(/```(?:\w+)?\n?([\s\S]*?)```/g, (_, c) => { blocks.push(c); return "\u0000" + (blocks.length - 1) + "\u0000"; });
+  t = t.replace(/`([^`\n]+)`/g, "<code>$1</code>")
+       .replace(/^#{1,6}\s*(.+)$/gm, "<b>$1</b>")
+       .replace(/\*\*(.+?)\*\*/g, "<b>$1</b>")
+       .replace(/(^|[\s(])\*(?!\s)([^*\n]+?)\*(?=[\s).,!?]|$)/g, "$1<i>$2</i>")
+       .replace(/^\s*[-*]\s+/gm, "• ")
+       .replace(/(https?:\/\/[^\s<)]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>')
+       .replace(/\n/g, "<br>");
+  return t.replace(/\u0000(\d+)\u0000/g, (_, i) => "<pre><code>" + blocks[i] + "</code></pre>");
+}
+function scroll() { msgs.scrollTop = msgs.scrollHeight; }
+function add(role, html) { const d = document.createElement("div"); d.className = "m " + role; d.innerHTML = html; msgs.appendChild(d); scroll(); return d; }
+function dataUrl(a) { return "data:" + (a.mime || "application/octet-stream") + ";base64," + a.b64; }
+function renderAtt(box, a) {
+  if (a.type === "image") { const i = document.createElement("img"); i.className = "att"; i.src = dataUrl(a); i.onload = scroll; box.appendChild(i); }
+  else if (a.type === "audio") {
+    if (a.title || a.artist) { const c = document.createElement("div"); c.className = "card"; c.innerHTML = "<b>" + esc(a.title || "") + "</b><span>" + esc(a.artist || "") + (a.full ? " · полный трек" : a.url ? " · превью 30 с" : "") + "</span>"; box.appendChild(c); }
+    const au = document.createElement("audio"); au.controls = true; au.preload = "none"; au.src = a.url || dataUrl(a); box.appendChild(au);
+    if (a.link) { const l = document.createElement("a"); l.href = a.link; l.target = "_blank"; l.rel = "noopener"; l.textContent = "Открыть страницу трека"; l.style.cssText = "display:block;margin-top:6px;font-size:14px"; box.appendChild(l); }
+  } else if (a.type === "file") { const l = document.createElement("a"); l.href = dataUrl(a); l.download = a.name || "file"; l.className = "card"; l.style.display = "block"; l.innerHTML = "<b>📎 " + esc(a.name || "файл") + "</b><span>Нажмите, чтобы сохранить</span>"; box.appendChild(l); }
+  else if (a.type === "link") { const l = document.createElement("a"); l.href = a.url; l.target = "_blank"; l.rel = "noopener"; l.className = "card"; l.style.display = "block"; l.innerHTML = "<b>▶️ " + esc(a.title || a.url) + "</b><span>Открыть видео</span>"; box.appendChild(l); }
+}
+function renderReply(res) {
+  const d = add("bot", res.text ? md(res.text) : "");
+  (res.attachments || []).forEach((a) => renderAtt(d, a));
+  if (!res.text && !(res.attachments || []).length) d.remove();
+  scroll();
+}
+function typing(on) {
+  const old = $("typing"); if (old) old.remove();
+  if (on) { const d = add("bot", '<span class="typing"><i></i><i></i><i></i></span>'); d.id = "typing"; }
+}
+
+async function api(path, body, opts = {}) {
+  const r = await fetch(path, { method: body === undefined ? "GET" : "POST", headers: Object.assign({ "Authorization": "Bearer " + token }, opts.headers || { "Content-Type": "application/json" }),
+    body: body === undefined ? undefined : (opts.raw ? body : JSON.stringify(body)) });
+  if (r.status === 401) { logout(true); throw new Error("auth"); }
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || ("Ошибка " + r.status));
+  return j;
+}
+function showLogin(on, msg) { $("login").classList.toggle("on", on); $("err").textContent = msg || ""; if (on) setTimeout(() => $("code").focus(), 100); }
+function logout(silent) { token = ""; localStorage.removeItem("slop_token"); msgs.innerHTML = ""; showLogin(true, silent ? "Сессия истекла, войдите снова" : ""); }
+
+async function loginWith(body) {
+  const r = await fetch("/api/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || "Не удалось войти");
+  token = j.token; localStorage.setItem("slop_token", token); $("sub").textContent = j.name ? "для " + j.name : "помощник";
+}
+async function start() {
+  const tg = window.Telegram && Telegram.WebApp;
+  if (tg && tg.initData) { try { tg.ready(); tg.expand(); await loginWith({ initData: tg.initData }); } catch (e) { showLogin(true, e.message); return; } }
+  if (!token) { showLogin(true); return; }
+  showLogin(false);
+  try {
+    const h = await api("/api/history");
+    if (!h.messages.length) msgs.innerHTML = '<div class="hint">Напишите вопрос, пришлите фото или документ, попросите «нарисуй…», «погода в…», «загугли…»</div>';
+    h.messages.forEach((m) => { if (m.text) add(m.role === "user" ? "me" : "bot", md(m.text)); });
+  } catch (e) { if (e.message !== "auth") add("bot", esc(e.message)); }
+}
+$("enter").onclick = async () => {
+  try { await loginWith({ code: $("code").value.trim() }); $("code").value = ""; start(); } catch (e) { $("err").textContent = e.message; }
+};
+$("code").addEventListener("keydown", (e) => { if (e.key === "Enter") $("enter").click(); });
+
+function fileToB64(f) { return new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result).split(",")[1]); r.onerror = rej; r.readAsDataURL(f); }); }
+async function downscale(f) { // фото с камеры бывают огромными: уменьшаем до 1600 px
+  if (!f.type.startsWith("image/") || f.type === "image/gif") return f;
+  try {
+    const bmp = await createImageBitmap(f); const k = Math.min(1, 1600 / Math.max(bmp.width, bmp.height));
+    const c = document.createElement("canvas"); c.width = Math.round(bmp.width * k); c.height = Math.round(bmp.height * k); c.getContext("2d").drawImage(bmp, 0, 0, c.width, c.height);
+    const blob = await new Promise((r) => c.toBlob(r, "image/jpeg", 0.85)); return new File([blob], f.name.replace(/\.\w+$/, "") + ".jpg", { type: "image/jpeg" });
+  } catch (_) { return f; }
+}
+$("attach").onclick = () => $("file").click();
+$("file").onchange = async () => { const f = $("file").files[0]; if (!f) return; if (f.size > 25e6) { alert("Файл слишком большой"); return; } pending = await downscale(f); $("chipname").textContent = "📎 " + pending.name; $("chip").classList.add("on"); $("file").value = ""; };
+$("chipx").onclick = () => { pending = null; $("chip").classList.remove("on"); };
+
+async function send(text, voiceBlob) {
+  if (busy) return; busy = true;
+  const h = msgs.querySelector(".hint"); if (h) h.remove();
+  let file = null, label = esc(text || "");
+  if (pending) { const f = pending; pending = null; $("chip").classList.remove("on"); file = { name: f.name, mime: f.type, b64: await fileToB64(f) };
+    label = (f.type.startsWith("image/") ? "" : "📎 " + esc(f.name) + "<br>") + label;
+    const me = add("me", label); if (f.type.startsWith("image/")) renderAtt(me, { type: "image", mime: f.type, b64: file.b64 }); }
+  else if (!voiceBlob) add("me", label);
+  typing(true);
+  try {
+    let res;
+    if (voiceBlob) res = await api("/api/voice", voiceBlob, { raw: true, headers: { "Content-Type": voiceBlob.type || "audio/mp4" } });
+    else res = await api("/api/chat", { text: text || "", file });
+    typing(false);
+    if (res.heard) add("me", "🎙 " + esc(res.heard));
+    renderReply(res);
+  } catch (e) { typing(false); if (e.message !== "auth") add("bot", "⚠️ " + esc(e.message)); }
+  busy = false;
+}
+$("form").addEventListener("submit", (e) => { e.preventDefault(); const t = textEl.value.trim(); if (!t && !pending) return; textEl.value = ""; textEl.style.height = "auto"; send(t); });
+textEl.addEventListener("input", () => { textEl.style.height = "auto"; textEl.style.height = Math.min(textEl.scrollHeight, 130) + "px"; });
+
+$("mic").onclick = async () => {
+  if (rec) { rec.stop(); return; }
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const mime = ["audio/mp4", "audio/webm;codecs=opus", "audio/webm"].find((m) => window.MediaRecorder && MediaRecorder.isTypeSupported(m)) || "";
+    const chunks = []; rec = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined); $("mic").classList.add("rec");
+    rec.ondataavailable = (e) => chunks.push(e.data);
+    rec.onstop = () => { stream.getTracks().forEach((t) => t.stop()); $("mic").classList.remove("rec"); const blob = new Blob(chunks, { type: (rec.mimeType || mime || "audio/mp4").split(";")[0] }); rec = null; if (blob.size > 800) send("", blob); };
+    rec.start();
+  } catch (_) { alert("Нет доступа к микрофону. Разрешите его в настройках Safari для этого сайта."); }
+};
+
+$("menubtn").onclick = (e) => { e.stopPropagation(); $("menu").classList.toggle("on"); };
+document.addEventListener("click", () => $("menu").classList.remove("on"));
+$("m-reset").onclick = async () => { try { await api("/api/reset", {}); msgs.innerHTML = '<div class="hint">Диалог очищен</div>'; } catch (_) {} };
+$("m-prompt").onclick = async () => {
+  try { const cur = (await api("/api/prompt", { get: true })).text || "";
+    const t = prompt("Как отвечать? Например: «Отвечай кратко, как преподаватель». Пусто — стандартный стиль.", cur);
+    if (t !== null) { await api("/api/prompt", { text: t }); msgs.innerHTML = '<div class="hint">Стиль сохранён, диалог начат заново</div>'; } } catch (_) {}
+};
+$("m-out").onclick = () => logout(false);
+
+// клавиатура iOS: подгоняем высоту под видимую область
+if (window.visualViewport) { const fit = () => { $("app").style.height = visualViewport.height + "px"; scroll(); }; visualViewport.addEventListener("resize", fit); fit(); }
+if ("serviceWorker" in navigator) navigator.serviceWorker.register("/app/sw.js", { scope: "/app/" }).catch(() => {});
+start();
+</script>
+</body>
+</html>
