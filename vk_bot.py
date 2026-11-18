@@ -294,6 +294,9 @@ class Vk:
         photos = [a["photo"] for a in atts if a.get("type") == "photo"]
         if photos:
             return await self.on_photo(peer, text, photos[0], reply_from)
+        docs = [a["doc"] for a in atts if a.get("type") == "doc" and (a["doc"].get("ext") or "").lower() in self.c.extras.DOC_EXT]
+        if docs:
+            return await self.on_doc(peer, text, docs[0], reply_from)
         voices = [a["audio_message"] for a in atts if a.get("type") == "audio_message"]
         if not text and voices:
             return await self.on_voice(peer, from_id, voices[0], mid, reply_from)
@@ -336,6 +339,7 @@ class Vk:
                 "/prompt текст — стиль ответов. /prompt — показать, /prompt сброс — как было.\n"
                 "/image описание — картинка. «нарисуй …» тоже работает.\n"
                 "«скинь картинку / гифку / песню / видео …» — найду готовое.\n"
+                "Ещё: пришлите файл PDF/Word/Excel — прочитаю; ссылку — перескажу; «загугли …», «погода в …», «курс доллара»; «скачай видео/аудио ссылка».\n"
                 "/reset — новый диалог. /status — нейросети.",
             )
             self.track(peer, mid, sent)
@@ -444,8 +448,150 @@ class Vk:
             return
         await self.answer(peer, text, heard=text)
 
+    async def quick(self, peer: int, text: str) -> bool:
+        """Погода и курсы валют — без нейросети (Open-Meteo и ЦБ РФ)."""
+        c, ex = self.c, self.c.extras
+        city, codes = ex.weather_city(text), ex.currency_codes(text)
+        if city is None and codes is None:
+            return False
+        try:
+            if codes is not None:
+                msg = c._plain(await ex.rates(codes))
+            elif not city:
+                msg = "Для какого города? Например: «погода в Ижевске»"
+            else:
+                msg = c._plain(await ex.weather(city))
+        except Exception as e:  # noqa
+            log.info("vk quick: %s", e)
+            msg = "⚠️ Не получилось получить данные, попробуйте позже."
+        await self.send(peer, msg)
+        st = self.st(peer)
+        st["history"] += [{"role": "user", "content": text}, {"role": "assistant", "content": msg[:3000]}]
+        await self.sweep(peer)
+        return True
+
+    async def web(self, peer: int, text: str) -> bool:
+        """Ссылка → пересказ страницы; «загугли …» → поиск с источниками."""
+        c, ex = self.c, self.c.extras
+        urls = ex.URL_RE.findall(text)
+        q = None if urls else ex.search_query(text)
+        if not urls and q is None:
+            return False
+        st = self.st(peer)
+        spin = await self.busy(peer)
+        footer = ""
+        try:
+            try:
+                if urls:
+                    url = urls[0].rstrip(".,;)!?")
+                    title, body = await ex.page_text(url)
+                    if not body:
+                        raise ValueError("на странице нет читаемого текста")
+                    question = text.replace(urls[0], "").strip(" ,:;-") or "Кратко перескажи главное из этой страницы."
+                    context, label = f"Страница: {title}\n{url}\n\n{body}", "ссылка"
+                else:
+                    items = await ex.web_search(q)
+                    if not items:
+                        raise ValueError("поиск ничего не дал")
+                    question = f"Ответь на запрос, опираясь на результаты поиска (ссылайся на номера источников [1], [2]): {q}"
+                    context, label = ex.search_context(items), "поиск"
+                    footer = "\n\nИсточники:\n" + ex.sources_footer(items)
+            except Exception as e:  # noqa
+                sent = await self.send(peer, f"⚠️ Не получилось: {str(e)[:120]}")
+                self.track(peer, sent)
+                return True
+            reply, prov, summary, history = await c.grounded_reply(
+                st["summary"], st["history"], st["custom"], question, context, label)
+        finally:
+            spin.cancel()
+        if not reply:
+            sent = await self.send(peer, c.fail_text())
+            self.track(peer, sent)
+            return True
+        st["history"], st["summary"] = history, summary
+        for part in c.chunks(reply + footer, 3500):
+            await self.send(peer, part)
+        await self.sweep(peer)
+        return True
+
+    async def on_doc(self, peer, text, doc, reply_from):
+        """Документ ВК (PDF, Word, Excel, текст): читаем и отвечаем по подписи или пересказываем."""
+        c, ex = self.c, self.c.extras
+        ok, text = self.addressed(peer, text, reply_from)
+        if not ok:
+            return
+        name = doc.get("title") or "file"
+        ext = (doc.get("ext") or "").lower()
+        if ext and not name.lower().endswith("." + ext):
+            name += "." + ext
+        if (doc.get("size") or 0) > 15_000_000 or not doc.get("url"):
+            sent = await self.send(peer, "⚠️ Файл слишком большой (до 15 МБ).")
+            self.track(peer, sent)
+            return
+        st = self.st(peer)
+        spin = await self.busy(peer)
+        try:
+            try:
+                async with self.sess.get(doc["url"], timeout=aiohttp.ClientTimeout(total=60)) as r:
+                    data = await r.content.read(15_000_001)
+                body, note = await asyncio.to_thread(ex.extract_document, data, name)
+                if not body:
+                    raise ValueError(note or "в файле нет текста")
+            except Exception as e:  # noqa
+                sent = await self.send(peer, f"⚠️ Не получилось прочитать файл: {str(e)[:120]}")
+                self.track(peer, sent)
+                return
+            question = text or "Кратко перескажи содержание документа и выдели главное."
+            reply, prov, summary, history = await c.grounded_reply(
+                st["summary"], st["history"], st["custom"], question, f"Файл: {name}\n{note}\n\n{body}", f"документ {name}")
+        finally:
+            spin.cancel()
+        if not reply:
+            sent = await self.send(peer, c.fail_text())
+            self.track(peer, sent)
+            return
+        st["history"], st["summary"] = history, summary
+        for part in c.chunks(reply, 3500):
+            await self.send(peer, part)
+        await self.sweep(peer)
+
+    async def run_dl(self, peer: int, text: str) -> bool:
+        """«Скачай видео/аудио <ссылка>»: файл уходит в чат как документ (ВК не даёт ботам добавлять видео/музыку)."""
+        c = self.c
+        req = c.media_dl.parse_request(text)
+        if not req:
+            return False
+        url, mode = req
+        spin = await self.busy(peer)
+        res = None
+        try:
+            res = await c.media_dl.fetch(url, mode, peer)
+            data = await asyncio.to_thread(lambda: open(res.path, "rb").read())
+            name = re.sub(r'[\\/:*?"<>|]', "", res.title)[:70].strip() or "file"
+            name += "." + res.path.rsplit(".", 1)[-1]
+            att = await self.upload(peer, data, name, "doc")
+            ok = bool(att) and bool(await self.send(peer, ("🎬 " if mode == "video" else "🎧 ") + res.title[:150], att))
+            if not ok:
+                sent = await self.send(peer, "⚠️ Не получилось загрузить файл в ВК.")
+                self.track(peer, sent)
+                return True
+        except c.media_dl.DLError as e:
+            sent = await self.send(peer, f"⚠️ {e}")
+            self.track(peer, sent)
+            return True
+        finally:
+            spin.cancel()
+            if res:
+                res.cleanup()
+        await self.sweep(peer)
+        return True
+
     async def answer(self, peer: int, text: str, heard: str = ""):
         c = self.c
+        if await self.quick(peer, text):
+            return
+        if await self.run_dl(peer, text):
+            return
         if c.is_image_request(text):
             return await self.do_image(peer, text)
         if c.is_media_request(text):
@@ -455,6 +601,8 @@ class Vk:
                 return await self.do_image(peer, q or text)
             if tool != "chat":
                 return await self.run_tool(peer, tool, q)
+        if await self.web(peer, text):
+            return
         st = self.st(peer)
         history, summary, custom = st["history"], st["summary"], st["custom"]
         history.append({"role": "user", "content": text})
