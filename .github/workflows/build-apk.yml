@@ -1,0 +1,47 @@
+name: Build Slopchik APK
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download repository
+        uses: actions/checkout@v4
+
+      - name: Extract ZIP archive
+        run: |
+          ARCHIVE=$(find . -maxdepth 1 -type f -name '*.zip' | head -n 1)
+          test -n "$ARCHIVE"
+          mkdir extracted
+          unzip -q "$ARCHIVE" -d extracted
+          SETTINGS=$(find extracted -type f \( -name settings.gradle -o -name settings.gradle.kts \) -print -quit)
+          test -n "$SETTINGS"
+          echo "APP_DIR=$(dirname "$SETTINGS")" >> "$GITHUB_ENV"
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Build APK
+        run: |
+          cd "$APP_DIR"
+          gradle assembleDebug -PAPP_BASE_URL=https://tgbot-naew.onrender.com/app/
+
+      - name: Save APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: slopchik-apk
+          path: ${{ env.APP_DIR }}/app/build/outputs/apk/debug/app-debug.apk
