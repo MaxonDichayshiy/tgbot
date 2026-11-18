@@ -432,5 +432,15 @@ def mount(app: web.Application, c):
     app.router.add_get("/app/", index)
     app.router.add_get("/app/sw.js", sw)
     app.router.add_get("/app/manifest.webmanifest", manifest)
-    app.router.add_static("/app/", APP_DIR, show_index=False)
+    ALLOWED_STATIC = re.compile(r"^[\w\-]+\.(png|ico|svg|webmanifest|js|css|html)$")
+
+    async def static(request):
+        """Отдаём только файлы приложения: случайно загруженные .py и прочее наружу не уходят."""
+        name = request.match_info["name"]
+        path = (APP_DIR / name).resolve()
+        if not ALLOWED_STATIC.match(name) or APP_DIR.resolve() not in path.parents or not path.is_file():
+            raise web.HTTPNotFound()
+        return web.FileResponse(path)
+
+    app.router.add_get("/app/{name}", static)
     log.info("web-приложение: /app/ (коды: %s)", "заданы" if codes else "не заданы — вход только через Telegram")

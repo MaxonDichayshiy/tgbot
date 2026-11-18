@@ -7,6 +7,7 @@ import logging
 import os
 import random
 import re
+import sys
 import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
@@ -386,7 +387,7 @@ STT_PROMPT = (
 _stt_down: dict = {}
 
 
-async def transcribe(audio: bytes):
+async def transcribe(audio: bytes, mime: str = "audio/ogg"):
     """Возвращает (текст, источник) или (None, ошибки). Перебирает подходящие модели."""
     errors = []
     now = time.time()
@@ -396,7 +397,8 @@ async def transcribe(audio: bytes):
             continue
         try:
             cl = AsyncOpenAI(api_key=key, base_url=url, max_retries=0, timeout=60)
-            r = await cl.audio.transcriptions.create(model=model, file=("voice.ogg", audio, "audio/ogg"))
+            ext = {"audio/mp4": "m4a", "audio/webm": "webm", "audio/mpeg": "mp3", "audio/wav": "wav"}.get(mime.split(";")[0], "ogg")
+            r = await cl.audio.transcriptions.create(model=model, file=(f"voice.{ext}", audio, mime.split(";")[0]))
             if (r.text or "").strip():
                 return r.text.strip(), name
         except Exception as e:  # noqa
@@ -415,7 +417,7 @@ async def transcribe(audio: bytes):
                 try:
                     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
                     body = {"contents": [{"parts": [
-                        {"inline_data": {"mime_type": "audio/ogg", "data": b64}},
+                        {"inline_data": {"mime_type": mime.split(";")[0], "data": b64}},
                         {"text": STT_PROMPT},
                     ]}]}
                     async with sess.post(url, json=body, headers={"x-goog-api-key": gkey}) as r:
@@ -1880,8 +1882,14 @@ async def main():
     dp = Dispatcher(storage=STORAGE)
     dp.include_router(router)
 
-    app = web.Application()
+    app = web.Application(client_max_size=14 * 1024 * 1024)
     app.router.add_get("/", health)
+    try:
+        import app_api
+
+        app_api.mount(app, sys.modules[__name__])
+    except Exception:
+        log.exception("web-приложение не подключено")
     runner = web.AppRunner(app)
     await runner.setup()
     await web.TCPSite(runner, "0.0.0.0", PORT).start()
