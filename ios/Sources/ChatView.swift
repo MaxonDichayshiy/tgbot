@@ -157,7 +157,7 @@ struct ChatView: View {
             Spacer()
             Button(action: resetChat) {
                 Image(systemName: "plus.message").font(.system(size: 18, weight: .medium))
-                    .frame(width: 38, height: 38).background(Color.white).clipShape(Circle())
+                    .frame(width: 38, height: 38).background(.ultraThinMaterial, in: Circle()).slopGlass(cornerRadius: 19)
             }
             .accessibilityLabel("Новый диалог")
             Menu {
@@ -193,7 +193,9 @@ struct ChatView: View {
                     .frame(width: 38, height: 38).background(Color.white).clipShape(Circle())
             }
         }
-        .padding(.horizontal, 16).padding(.vertical, 12).background(.white)
+        .padding(.horizontal, 16).padding(.vertical, 12)
+        .background(.ultraThinMaterial)
+        .slopGlass(cornerRadius: 0)
     }
 
     private var composer: some View {
@@ -223,7 +225,8 @@ struct ChatView: View {
                 .focused($isComposerFocused)
                 .submitLabel(.send)
                 .lineLimit(1...5).padding(.horizontal, 15).padding(.vertical, 12)
-                .background(Color.white).clipShape(RoundedRectangle(cornerRadius: 22))
+                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+                .slopGlass(cornerRadius: 22)
                 .disabled(isSending || isRecording)
             if draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && selectedFile == nil {
                 Button(action: toggleRecording) {
@@ -248,7 +251,8 @@ struct ChatView: View {
             }
             .padding(.horizontal, 10).padding(.vertical, 10)
         }
-        .background(Color(red: 0.97, green: 0.96, blue: 0.94))
+        .background(.ultraThinMaterial)
+        .slopGlass(cornerRadius: 0)
     }
 
     private func messageBubble(_ message: ChatMessage) -> some View {
@@ -266,7 +270,7 @@ struct ChatView: View {
                 }
             }
             .padding(.horizontal, 15).padding(.vertical, 11)
-            .background(isUser ? accent : Color.white)
+            .background(isUser ? accent : Color(uiColor: .secondarySystemGroupedBackground))
             .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
             if !isUser { Spacer(minLength: 42) }
         }
