@@ -80,7 +80,7 @@ struct CreatorInfoView: View {
                 Spacer()
             }
             .padding(28).frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(Color(red: 0.97, green: 0.96, blue: 0.94))
+            .background(Color(uiColor: .systemGroupedBackground))
             .navigationTitle("О создателе")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
