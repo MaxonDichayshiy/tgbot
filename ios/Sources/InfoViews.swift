@@ -73,7 +73,7 @@ struct CreatorInfoView: View {
                     .foregroundStyle(.secondary)
                 Link(destination: URL(string: "https://t.me/Maxonkonor")!) {
                     Label("Написать в Telegram", systemImage: "paperplane.fill")
-                        .font(.headline).foregroundStyle(.white)
+                        .font(.headline).foregroundStyle(SlopTheme.accentForeground)
                         .padding(.horizontal, 22).padding(.vertical, 13)
                         .background(accent).clipShape(Capsule()).slopGlass(cornerRadius: 24)
                 }
