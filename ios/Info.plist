@@ -4,26 +4,5 @@
 <dict>
   <key>NSMicrophoneUsageDescription</key>
   <string>Слопчик использует микрофон для записи голосовых сообщений.</string>
-  <key>CFBundleIcons</key>
-  <dict>
-    <key>CFBundlePrimaryIcon</key>
-    <dict>
-      <key>CFBundleIconFiles</key>
-      <array><string>AppIcon</string></array>
-      <key>CFBundleIconName</key>
-      <string>AppIcon</string>
-      <key>UIPrerenderedIcon</key>
-      <false/>
-    </dict>
-    <key>CFBundleAlternateIcons</key>
-    <dict>
-      <key>SlopchikCar</key>
-      <dict><key>CFBundleIconFiles</key><array><string>SlopchikCar</string></array><key>CFBundleIconName</key><string>SlopchikCar</string><key>UIPrerenderedIcon</key><false/></dict>
-      <key>SlopchikYard</key>
-      <dict><key>CFBundleIconFiles</key><array><string>SlopchikYard</string></array><key>CFBundleIconName</key><string>SlopchikYard</string><key>UIPrerenderedIcon</key><false/></dict>
-      <key>SlopchikNight</key>
-      <dict><key>CFBundleIconFiles</key><array><string>SlopchikNight</string></array><key>CFBundleIconName</key><string>SlopchikNight</string><key>UIPrerenderedIcon</key><false/></dict>
-    </dict>
-  </dict>
 </dict>
 </plist>
