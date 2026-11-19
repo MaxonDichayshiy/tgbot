@@ -12,6 +12,15 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Set up Python for icon generation
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Generate official Windows app icon
+        run: |
+          python -m pip install Pillow
+          python desktop/scripts/generate_windows_icon.py
+
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
       - name: Install Tauri CLI
