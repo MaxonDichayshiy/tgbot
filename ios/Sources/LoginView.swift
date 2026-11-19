@@ -10,7 +10,7 @@ struct LoginView: View {
 
     var body: some View {
         ZStack {
-            Color(uiColor: .systemGroupedBackground).ignoresSafeArea()
+            SlopTheme.canvas.ignoresSafeArea()
             VStack(spacing: 24) {
                 Spacer()
                 ZStack {
