@@ -48,6 +48,8 @@ struct ChatView: View {
     @State private var playbackDuration: Double = 0
     @State private var playbackVolume: Double = 1
     @State private var isAudioPlaying = false
+    @State private var isAudioLoading = false
+    @State private var playbackError: String?
     @State private var expandedAudioID: UUID?
     @State private var isSeekingAudio = false
     @State private var promptText = ""
@@ -652,6 +654,13 @@ struct ChatView: View {
             }
             .padding(.top, 1)
 
+            if isCurrent && isAudioLoading {
+                HStack(spacing: 7) { ProgressView().tint(accent); Text("Загружаем аудио…").font(.caption).foregroundStyle(.secondary) }
+            }
+            if isCurrent, let playbackError {
+                Text(playbackError).font(.caption).foregroundStyle(.red).fixedSize(horizontal: false, vertical: true)
+            }
+
             if expandedAudioID == item.id {
                 Divider().overlay(Color.primary.opacity(0.06))
                 HStack(spacing: 9) {
@@ -677,44 +686,77 @@ struct ChatView: View {
 
     private func playAudio(_ item: ChatAttachment) {
         if playingID == item.id, let player {
-            if isAudioPlaying {
-                player.pause()
-                isAudioPlaying = false
-            } else {
-                player.play()
-                isAudioPlaying = true
-            }
+            if isAudioPlaying { player.pause(); isAudioPlaying = false }
+            else if !isAudioLoading { player.play(); isAudioPlaying = true }
             return
         }
-
-        let audioURL: URL?
-        if !item.base64.isEmpty {
-            audioURL = temporaryFileURL(item)
-        } else {
-            audioURL = URL(string: item.url)
-        }
-        guard let audioURL else {
-            errorMessage = "Не удалось открыть аудиофайл."
-            return
-        }
-
-        do {
-            try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default)
-            try AVAudioSession.sharedInstance().setActive(true)
-        } catch {
-            errorMessage = "Не удалось настроить воспроизведение: \(error.localizedDescription)"
-        }
-
         player?.pause()
-        player = AVPlayer(url: audioURL)
-        player?.volume = Float(playbackVolume)
         playingID = item.id
         playbackTime = 0
         playbackDuration = 0
-        isAudioPlaying = true
-        player?.play()
+        playbackError = nil
+        isAudioPlaying = false
+        isAudioLoading = true
+
+        if !item.base64.isEmpty {
+            guard let data = Data(base64Encoded: item.base64), !data.isEmpty else {
+                failAudio("Аудиофайл повреждён или имеет неверный формат.")
+                return
+            }
+            let ext = UTType(mimeType: item.mime)?.preferredFilenameExtension ?? "mp3"
+            let localURL = FileManager.default.temporaryDirectory.appendingPathComponent("slopchik-" + UUID().uuidString + "." + ext)
+            do { try data.write(to: localURL, options: .atomic); startLocalAudio(localURL) }
+            catch { failAudio("Не удалось сохранить аудио: " + error.localizedDescription) }
+            return
+        }
+
+        guard let remoteURL = URL(string: item.url),
+              ["https", "http"].contains(remoteURL.scheme?.lowercased() ?? "") else {
+            failAudio("У аудиозаписи нет доступного адреса.")
+            return
+        }
+        URLSession.shared.downloadTask(with: remoteURL) { location, response, error in
+            if let error {
+                DispatchQueue.main.async { failAudio("Не удалось загрузить аудио: " + error.localizedDescription) }
+                return
+            }
+            guard let location, let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+                let code = (response as? HTTPURLResponse).map { String($0.statusCode) } ?? "нет ответа"
+                DispatchQueue.main.async { failAudio("Источник не отдал аудио (HTTP " + code + ").") }
+                return
+            }
+            let mime = http.mimeType ?? ""
+            let ext = UTType(mimeType: mime)?.preferredFilenameExtension ?? (remoteURL.pathExtension.isEmpty ? "mp3" : remoteURL.pathExtension)
+            let localURL = FileManager.default.temporaryDirectory.appendingPathComponent("slopchik-" + UUID().uuidString + "." + ext)
+            do {
+                try FileManager.default.moveItem(at: location, to: localURL)
+                DispatchQueue.main.async { startLocalAudio(localURL) }
+            } catch {
+                DispatchQueue.main.async { failAudio("Не удалось подготовить аудио: " + error.localizedDescription) }
+            }
+        }.resume()
     }
 
+    private func startLocalAudio(_ url: URL) {
+        do {
+            try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default)
+            try AVAudioSession.sharedInstance().setActive(true)
+        } catch { failAudio("Не удалось включить звук: " + error.localizedDescription); return }
+        let item = AVPlayerItem(url: url)
+        let newPlayer = AVPlayer(playerItem: item)
+        newPlayer.volume = Float(playbackVolume)
+        player = newPlayer
+        newPlayer.play()
+        isAudioLoading = false
+        isAudioPlaying = true
+    }
+
+    private func failAudio(_ message: String) {
+        player?.pause()
+        isAudioLoading = false
+        isAudioPlaying = false
+        playbackError = message
+    }
     private func seekAudio(by seconds: Double) {
         guard let player else { return }
         let target = max(0, min(playbackDuration, playbackTime + seconds))
