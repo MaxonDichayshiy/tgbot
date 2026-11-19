@@ -6,19 +6,20 @@ struct LoginView: View {
     @State private var isLoading = false
     @State private var errorMessage: String?
     private let apiBase = "https://tgbot-naew.onrender.com"
+    private let accent = SlopTheme.accent
 
     var body: some View {
         ZStack {
-            Color(red: 0.97, green: 0.97, blue: 0.98).ignoresSafeArea()
+            Color(uiColor: .systemGroupedBackground).ignoresSafeArea()
             VStack(spacing: 24) {
                 Spacer()
                 ZStack {
-                    RoundedRectangle(cornerRadius: 28).fill(Color.white)
+                    RoundedRectangle(cornerRadius: 28).fill(.ultraThinMaterial)
                         .frame(width: 88, height: 88)
                         .shadow(color: .black.opacity(0.06), radius: 16, y: 6)
                     Image(systemName: "bubble.left.and.bubble.right.fill")
                         .font(.system(size: 34, weight: .semibold))
-                        .foregroundStyle(Color(red: 0.30, green: 0.48, blue: 0.92))
+                        .foregroundStyle(accent)
                 }
                 VStack(spacing: 8) {
                     Text("Слопчик").font(.system(size: 34, weight: .bold, design: .rounded))
@@ -32,8 +33,8 @@ struct LoginView: View {
                         .textContentType(.oneTimeCode)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
-                        .padding(16).background(Color.white)
-                        .clipShape(RoundedRectangle(cornerRadius: 16))
+                        .padding(16).background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                         .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.black.opacity(0.06)))
                 }
                 if let errorMessage {
@@ -47,7 +48,7 @@ struct LoginView: View {
                     }
                     .frame(maxWidth: .infinity).padding(.vertical, 17)
                     .foregroundStyle(.white)
-                    .background(Color(red: 0.30, green: 0.48, blue: 0.92))
+                    .background(accent)
                     .clipShape(RoundedRectangle(cornerRadius: 16))
                 }
                 .disabled(code.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isLoading)
