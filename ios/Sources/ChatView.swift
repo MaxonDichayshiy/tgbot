@@ -147,68 +147,73 @@ struct ChatView: View {
     }
 
     private var header: some View {
-        HStack(spacing: 12) {
-            Image(systemName: "bubble.left.and.bubble.right.fill")
-                .font(.system(size: 22)).foregroundStyle(accent)
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Слопчик").font(.headline)
-                Text("Вы вошли как \(userName)").font(.caption).foregroundStyle(.secondary)
-            }
-            Spacer()
-            Button(action: resetChat) {
-                Image(systemName: "plus.message").font(.system(size: 18, weight: .medium))
-                    .frame(width: 38, height: 38).background(.ultraThinMaterial, in: Circle()).slopGlass(cornerRadius: 19)
-            }
-            .accessibilityLabel("Новый диалог")
-            Menu {
-                Button { showPromptSettings = true } label: {
-                    Label("Персональная инструкция", systemImage: "slider.horizontal.3")
-                }
-                Button { showIconSettings = true } label: {
-                    Label("Иконка приложения", systemImage: "app")
-                }
-                Button { showLegalInfo = true } label: {
-                    Label("Правовой уголок", systemImage: "doc.text")
-                }
-                Button { showCreatorInfo = true } label: {
-                    Label("О создателе", systemImage: "person.crop.circle")
-                }
+        ZStack {
+            HStack {
                 Menu {
-                    Button { themeRaw = SlopThemeMode.light.rawValue } label: {
-                        Label("Светлая", systemImage: themeRaw == "light" ? "checkmark.circle.fill" : "sun.max")
+                    Text("Вы вошли как \(userName)")
+                    Divider()
+                    Button { showPromptSettings = true } label: {
+                        Label("Персональная инструкция", systemImage: "slider.horizontal.3")
                     }
-                    Button { themeRaw = SlopThemeMode.dark.rawValue } label: {
-                        Label("Тёмная", systemImage: themeRaw == "dark" ? "checkmark.circle.fill" : "moon")
+                    Button { showIconSettings = true } label: {
+                        Label("Иконка приложения", systemImage: "app")
                     }
-                    Button { themeRaw = SlopThemeMode.system.rawValue } label: {
-                        Label("Как в системе", systemImage: themeRaw == "system" ? "checkmark.circle.fill" : "iphone")
+                    Button { showLegalInfo = true } label: {
+                        Label("Правовой уголок", systemImage: "doc.text")
                     }
+                    Button { showCreatorInfo = true } label: {
+                        Label("О создателе", systemImage: "person.crop.circle")
+                    }
+                    Menu {
+                        Button { themeRaw = SlopThemeMode.light.rawValue } label: {
+                            Label("Светлая", systemImage: themeRaw == "light" ? "checkmark.circle.fill" : "sun.max")
+                        }
+                        Button { themeRaw = SlopThemeMode.dark.rawValue } label: {
+                            Label("Тёмная", systemImage: themeRaw == "dark" ? "checkmark.circle.fill" : "moon")
+                        }
+                        Button { themeRaw = SlopThemeMode.system.rawValue } label: {
+                            Label("Как в системе", systemImage: themeRaw == "system" ? "checkmark.circle.fill" : "iphone")
+                        }
+                    } label: {
+                        Label("Тема оформления", systemImage: "circle.lefthalf.filled")
+                    }
+                    Divider()
+                    Button("Выйти", role: .destructive, action: onLogout)
                 } label: {
-                    Label("Тема оформления", systemImage: "circle.lefthalf.filled")
+                    Image(systemName: "line.3.horizontal")
+                        .font(.system(size: 19, weight: .medium))
+                        .frame(width: 42, height: 42)
+                        .contentShape(Rectangle())
                 }
-                Divider()
-                Button("Выйти", role: .destructive, action: onLogout)
-            } label: {
-                Image(systemName: "ellipsis").font(.system(size: 18, weight: .semibold))
-                    .frame(width: 38, height: 38).background(Color.white).clipShape(Circle())
+                .accessibilityLabel("Меню")
+
+                Spacer()
+
+                Button(action: resetChat) {
+                    Image(systemName: "square.and.pencil")
+                        .font(.system(size: 19, weight: .medium))
+                        .frame(width: 42, height: 42)
+                        .contentShape(Rectangle())
+                }
+                .accessibilityLabel("Новый диалог")
             }
+            Text("Слопчик")
+                .font(.system(size: 17, weight: .semibold, design: .rounded))
+                .foregroundStyle(.primary)
+                .allowsHitTesting(false)
         }
-        .padding(.horizontal, 16).padding(.vertical, 12)
-        .background(.ultraThinMaterial)
-        .slopGlass(cornerRadius: 0)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 5)
+        .background(.regularMaterial)
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(Color.primary.opacity(0.07))
+                .frame(height: 0.5)
+        }
     }
 
     private var composer: some View {
         VStack(spacing: 0) {
-            if isComposerFocused {
-                HStack {
-                    Spacer()
-                    Button("Готово") { isComposerFocused = false }
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(accent)
-                        .padding(.horizontal, 16).padding(.top, 5).padding(.bottom, 2)
-                }
-            }
             HStack(alignment: .bottom, spacing: 8) {
             Menu {
                 Button { showPhotoPicker = true } label: {
