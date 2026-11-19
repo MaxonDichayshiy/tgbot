@@ -59,6 +59,7 @@ struct ChatView: View {
     @State private var selectedFile: (name: String, mime: String, data: Data)?
     @State private var showAttachmentMenu = false
     @AppStorage("slopchik.theme") private var themeRaw = SlopThemeMode.system.rawValue
+    @Environment(\.colorScheme) private var colorScheme
 
     private let apiBase = "https://tgbot-naew.onrender.com"
     private let accent = SlopTheme.accent
