@@ -2,6 +2,21 @@ name: Build Slopchik Desktop
 
 on:
   workflow_dispatch:
+    inputs:
+      icon_variant:
+        description: "Вариант иконки Windows-приложения"
+        required: true
+        type: choice
+        default: lime
+        options:
+          - lime
+          - lime-invert
+          - purple
+          - orange
+          - pink
+          - blue
+          - teal
+          - rainbow
   push:
     paths:
       - "desktop/**"
@@ -19,7 +34,7 @@ jobs:
       - name: Generate official Windows app icon
         run: |
           python -m pip install Pillow
-          python desktop/scripts/generate_windows_icon.py
+          python desktop/scripts/generate_windows_icon.py "${{ inputs.icon_variant || 'lime' }}"
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
