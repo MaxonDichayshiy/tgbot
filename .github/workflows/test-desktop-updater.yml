@@ -1,0 +1,63 @@
+name: Test Slopchik Desktop Updater
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test-signed-updater:
+    runs-on: windows-latest
+    env:
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate signing secrets
+        shell: pwsh
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:TAURI_SIGNING_PRIVATE_KEY)) {
+            throw "Missing TAURI_SIGNING_PRIVATE_KEY GitHub Actions secret."
+          }
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Tauri CLI
+        run: cargo install tauri-cli --version "^2" --locked
+
+      - name: Enable signed updater artifacts
+        shell: pwsh
+        run: |
+          $configPath = "desktop/src-tauri/tauri.conf.json"
+          $config = Get-Content $configPath -Raw | ConvertFrom-Json
+          $config.bundle | Add-Member -NotePropertyName createUpdaterArtifacts -NotePropertyValue $true -Force
+          $config | ConvertTo-Json -Depth 100 | Set-Content $configPath -Encoding utf8
+
+      - name: Build signed Windows installer
+        working-directory: desktop/src-tauri
+        run: cargo tauri build
+
+      - name: Verify updater artifacts
+        shell: pwsh
+        run: |
+          $bundleDir = "desktop/src-tauri/target/release/bundle/nsis"
+          $archive = Get-ChildItem $bundleDir -Filter "*.nsis.zip" | Select-Object -First 1
+          if (-not $archive) { throw "Tauri did not create the NSIS updater archive." }
+          if (-not (Test-Path "$($archive.FullName).sig")) {
+            throw "Updater signature file is missing."
+          }
+          Write-Host "Signed updater archive and signature were created successfully."
+
+      - name: Upload test artifacts (no release)
+        uses: actions/upload-artifact@v4
+        with:
+          name: Slopchik-Signed-Updater-Test
+          path: |
+            desktop/src-tauri/target/release/bundle/nsis/*.exe
+            desktop/src-tauri/target/release/bundle/nsis/*.nsis.zip
+            desktop/src-tauri/target/release/bundle/nsis/*.nsis.zip.sig
+          if-no-files-found: error
+          retention-days: 7
