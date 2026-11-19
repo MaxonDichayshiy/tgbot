@@ -38,7 +38,10 @@ fn main() {
                         "Доступна новая версия Слопчика: {version}. Установить обновление сейчас?"
                     ))
                     .title("Обновление Слопчика")
-                    .buttons(MessageDialogButtons::OkCancelCustom("Обновить", "Позже"))
+                    .buttons(MessageDialogButtons::OkCancelCustom(
+                        "Обновить".to_string(),
+                        "Позже".to_string(),
+                    ))
                     .show(move |confirmed| {
                         if confirmed {
                             let restart_handle = install_handle.clone();
@@ -52,7 +55,6 @@ fn main() {
                             });
                         }
                     });
-
             });
 
             Ok(())
