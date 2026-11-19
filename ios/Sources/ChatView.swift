@@ -214,7 +214,25 @@ struct ChatView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
-        .background(.regularMaterial)
+        .background(alignment: .bottom) {
+            Rectangle()
+                .fill(.regularMaterial)
+                .frame(height: 42)
+                .mask {
+                    LinearGradient(
+                        stops: [
+                            .init(color: .black, location: 0),
+                            .init(color: .black, location: 0.22),
+                            .init(color: .clear, location: 1)
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                }
+                .offset(y: 42)
+                .allowsHitTesting(false)
+        }
+        .zIndex(1)
     }
 
     private var composer: some View {
