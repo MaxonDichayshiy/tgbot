@@ -599,14 +599,18 @@ def _audius_license_allowed(value: str) -> bool:
 
 
 async def search_audius(sess, q: str) -> list:
-    """Ищем по каталогу Audius; отправляем только доступные для скачивания треки с открытой лицензией."""
-    # Не передаём only_downloadable: серверный фильтр может отличаться между версиями API.
-    # Проверяем доступность и лицензию локально, чтобы не терять результаты поиска.
-    j = await _json(
-        sess,
-        "https://api.audius.co/v1/tracks/search",
-        params={"query": q, "limit": 30},
-    )
+    """Ищем в Audius через основной API и резервный discovery provider."""
+    # Audius discovery endpoints historically expect app_name. Передаём его
+    # явно и пробуем резервный официальный узел, если основной вернул пустой список.
+    params = {"query": q, "limit": 30, "app_name": "Slopchik"}
+    j = await _json(sess, "https://api.audius.co/v1/tracks/search", params=params)
+    if not isinstance(j, dict) or not isinstance(j.get("data"), list) or not j["data"]:
+        fallback = await _json(
+            sess, "https://discoveryprovider.audius.co/v1/tracks/search", params=params
+        )
+        if isinstance(fallback, dict) and isinstance(fallback.get("data"), list) and fallback["data"]:
+            j = fallback
+            log.info("Audius search: using discovery provider fallback")
     if not isinstance(j, dict) or not isinstance(j.get("data"), list):
         log.warning("Audius search failed or returned an unexpected response for query %r", q[:100])
         return []
