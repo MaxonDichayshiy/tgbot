@@ -37,6 +37,7 @@ struct ChatView: View {
     @FocusState private var isComposerFocused: Bool
     @State private var showPromptSettings = false
     @State private var showFilePicker = false
+    @State private var showPhotoPicker = false
     @State private var selectedPhoto: PhotosPickerItem?
     @State private var recording: AVAudioRecorder?
     @State private var isRecording = false
@@ -100,15 +101,29 @@ struct ChatView: View {
         .sheet(isPresented: $showPromptSettings) { promptSheet }
         .sheet(isPresented: $showLegalInfo) { LegalInfoView() }
         .sheet(isPresented: $showCreatorInfo) { CreatorInfoView() }
+        .photosPicker(isPresented: $showPhotoPicker, selection: $selectedPhoto, matching: .images)
         .fileImporter(isPresented: $showFilePicker, allowedContentTypes: [.item], allowsMultipleSelection: false, onCompletion: handleFileImport)
         .onChange(of: selectedPhoto) { item in
             guard let item else { return }
             Task {
-                if let data = try? await item.loadTransferable(type: Data.self) {
+                do {
+                    guard let data = try await item.loadTransferable(type: Data.self) else {
+                        await MainActor.run { errorMessage = "Не удалось загрузить выбранное фото."; selectedPhoto = nil }
+                        return
+                    }
+                    let mime = item.supportedContentTypes.first?.preferredMIMEType ?? "image/jpeg"
+                    let ext = item.supportedContentTypes.first?.preferredFilenameExtension ?? "jpg"
                     await MainActor.run {
-                        selectedFile = ("Фото", "image/jpeg", data)
+                        if data.count > 9_000_000 {
+                            errorMessage = "Фото слишком большое. Максимум — 9 МБ."
+                        } else {
+                            selectedFile = ("Фото.\\(ext)", mime, data)
+                            errorMessage = nil
+                        }
                         selectedPhoto = nil
                     }
+                } catch {
+                    await MainActor.run { errorMessage = "Не удалось загрузить фото: \\(error.localizedDescription)"; selectedPhoto = nil }
                 }
             }
         }
@@ -180,7 +195,7 @@ struct ChatView: View {
             }
             HStack(alignment: .bottom, spacing: 8) {
             Menu {
-                PhotosPicker(selection: $selectedPhoto, matching: .images) {
+                Button { showPhotoPicker = true } label: {
                     Label("Выбрать фото", systemImage: "photo")
                 }
                 Button { showFilePicker = true } label: {
