@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct LoginView: View {
-    let onLogin: (String, String) -> Void
+    let onLogin: (String, String, String) -> Void
     @State private var code = ""
     @State private var isLoading = false
     @State private var errorMessage: String?
@@ -91,7 +91,12 @@ struct LoginView: View {
                     }
                     return
                 }
-                onLogin(receivedToken, result["name"] as? String ?? "пользователь")
+                let accountID = String(describing: result["user_id"] ?? "")
+                guard !accountID.isEmpty else {
+                    errorMessage = "Сервер не вернул идентификатор аккаунта. Обновите приложение."
+                    return
+                }
+                onLogin(receivedToken, result["name"] as? String ?? "пользователь", accountID)
             }
         }.resume()
     }
