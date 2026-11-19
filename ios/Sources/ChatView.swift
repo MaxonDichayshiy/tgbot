@@ -117,13 +117,13 @@ struct ChatView: View {
                         if data.count > 9_000_000 {
                             errorMessage = "Фото слишком большое. Максимум — 9 МБ."
                         } else {
-                            selectedFile = ("Фото.\\(ext)", mime, data)
+                            selectedFile = ("Фото.\(ext)", mime, data)
                             errorMessage = nil
                         }
                         selectedPhoto = nil
                     }
                 } catch {
-                    await MainActor.run { errorMessage = "Не удалось загрузить фото: \\(error.localizedDescription)"; selectedPhoto = nil }
+                    await MainActor.run { errorMessage = "Не удалось загрузить фото: \(error.localizedDescription)"; selectedPhoto = nil }
                 }
             }
         }
