@@ -605,7 +605,7 @@ async def search_audius(sess, q: str) -> list:
         "https://api.audius.co/v1/tracks/search",
         params={"query": q, "limit": 20, "only_downloadable": "true"},
     )
-    toks = [w for w in re.findall(r"\\w+", q.lower()) if len(w) >= 3]
+    toks = [w for w in re.findall(r"\w+", q.lower()) if len(w) >= 3]
     res = []
     for t in (j or {}).get("data", []):
         track_id = str(t.get("id") or "").strip()
