@@ -770,6 +770,10 @@ struct ChatView: View {
         let duration = player.currentItem?.duration.seconds ?? 0
         if current.isFinite && !isSeekingAudio { playbackTime = max(0, current) }
         if duration.isFinite && duration > 0 { playbackDuration = duration }
+        if let item = player.currentItem, item.status == .failed {
+            failAudio("Формат аудио не удалось воспроизвести: " + (item.error?.localizedDescription ?? "неизвестная ошибка"))
+            return
+        }
         if player.timeControlStatus == .paused && isAudioPlaying {
             isAudioPlaying = false
         } else if player.timeControlStatus == .playing && !isAudioPlaying {
