@@ -20,13 +20,21 @@
       }
     ],
     "security": {
-      "capabilities": ["desktop-remote"]
+      "capabilities": [
+        "desktop-remote"
+      ]
     }
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis", "msi"],
+    "targets": [
+      "nsis",
+      "msi"
+    ],
     "shortDescription": "Слопчик — твой AI-помощник",
-    "category": "Productivity"
+    "category": "Productivity",
+    "icon": [
+      "icons/icon.ico"
+    ]
   }
 }
