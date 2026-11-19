@@ -54,7 +54,7 @@ struct IconSettingsView: View {
                 }
                 .padding(18)
             }
-            .background(Color(uiColor: .systemGroupedBackground))
+            .background(SlopTheme.canvas)
             .navigationTitle("Иконка приложения")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -83,13 +83,13 @@ struct IconSettingsView: View {
                         .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
                         .overlay {
                             RoundedRectangle(cornerRadius: 22, style: .continuous)
-                                .stroke(isSelected ? Color(red: 0.86, green: 0.36, blue: 0.16) : Color.black.opacity(0.06), lineWidth: isSelected ? 3 : 1)
+                                .stroke(isSelected ? SlopTheme.accent : Color.black.opacity(0.06), lineWidth: isSelected ? 3 : 1)
                         }
                     if isSelected {
                         Image(systemName: "checkmark.circle.fill")
                             .font(.system(size: 25, weight: .semibold))
                             .symbolRenderingMode(.palette)
-                            .foregroundStyle(.white, Color(red: 0.86, green: 0.36, blue: 0.16))
+                            .foregroundStyle(SlopTheme.accentForeground, SlopTheme.accent)
                             .padding(9)
                     }
                 }
