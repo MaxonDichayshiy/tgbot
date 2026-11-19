@@ -621,6 +621,7 @@ struct ChatView: View {
             .foregroundStyle(.secondary)
 
             HStack(spacing: 25) {
+                Spacer(minLength: 0)
                 Button { seekAudio(by: -15) } label: {
                     Image(systemName: "gobackward.15")
                         .font(.system(size: 21, weight: .regular))
@@ -647,20 +648,7 @@ struct ChatView: View {
                 .buttonStyle(.plain)
                 .disabled(!isCurrent)
 
-                Spacer()
-                if !item.base64.isEmpty, let url = temporaryFileURL(item) {
-                    ShareLink(item: url) {
-                        Image(systemName: "square.and.arrow.up")
-                            .font(.system(size: 17, weight: .medium))
-                            .foregroundStyle(.secondary)
-                    }
-                } else if let url = URL(string: item.url), !item.url.isEmpty {
-                    ShareLink(item: url) {
-                        Image(systemName: "square.and.arrow.up")
-                            .font(.system(size: 17, weight: .medium))
-                            .foregroundStyle(.secondary)
-                    }
-                }
+                Spacer(minLength: 0)
             }
             .padding(.top, 1)
 
