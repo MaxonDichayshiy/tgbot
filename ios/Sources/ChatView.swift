@@ -26,6 +26,7 @@ private struct ChatMessage: Identifiable, Codable {
 struct ChatView: View {
     let token: String
     let userName: String
+    let userID: String
     let onLogout: () -> Void
 
     @State private var messages: [ChatMessage] = []
@@ -281,15 +282,34 @@ struct ChatView: View {
                 .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
                 .slopGlass(cornerRadius: 22)
                 .disabled(isSending || isRecording)
-            if draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && selectedFile == nil {
-                Button(action: toggleRecording) {
-                    Image(systemName: isRecording ? "stop.fill" : "mic.fill")
-                        .font(.system(size: 17, weight: .semibold))
-                        .frame(width: 46, height: 46).foregroundStyle(isRecording ? Color.white : SlopTheme.accentForeground)
-                        .background(isRecording ? Color.red : accent).clipShape(Circle())
+            if isRecording {
+                Button(action: cancelRecording) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 16, weight: .semibold))
+                        .frame(width: 42, height: 42)
+                        .foregroundStyle(.primary)
+                        .background(SlopTheme.surface, in: Circle())
                 }
                 .disabled(isSending)
-                .accessibilityLabel(isRecording ? "Остановить запись" : "Записать голос")
+                .accessibilityLabel("Отменить запись")
+                Button(action: toggleRecording) {
+                    Image(systemName: "stop.fill")
+                        .font(.system(size: 16, weight: .semibold))
+                        .frame(width: 46, height: 46)
+                        .foregroundStyle(.white)
+                        .background(Color.red, in: Circle())
+                }
+                .disabled(isSending)
+                .accessibilityLabel("Завершить и отправить запись")
+            } else if draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && selectedFile == nil {
+                Button(action: toggleRecording) {
+                    Image(systemName: "mic.fill")
+                        .font(.system(size: 17, weight: .semibold))
+                        .frame(width: 46, height: 46).foregroundStyle(SlopTheme.accentForeground)
+                        .background(accent).clipShape(Circle())
+                }
+                .disabled(isSending)
+                .accessibilityLabel("Записать голос")
             } else {
                 Button(action: sendMessage) {
                     Group {
@@ -378,7 +398,9 @@ struct ChatView: View {
     // История хранится только в Application Support на этом iPhone.
     // Имя файла привязано к аккаунту, чтобы разные пользователи не смешивали переписки.
     private var localHistoryURL: URL {
-        let digest = SHA256.hash(data: Data(token.utf8))
+        // Telegram user ID остаётся постоянным при повторном входе и смене токена.
+        let identity = userID.isEmpty ? token : userID
+        let digest = SHA256.hash(data: Data(identity.utf8))
         let fileName = digest.map { String(format: "%02x", $0) }.joined() + ".json"
         let directory = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("Slopchik", isDirectory: true)
@@ -503,6 +525,17 @@ struct ChatView: View {
         case "gif": return "image/gif"
         default: return "application/octet-stream"
         }
+    }
+
+    private func cancelRecording() {
+        guard isRecording else { return }
+        let url = recording?.url
+        recording?.stop()
+        recording = nil
+        isRecording = false
+        if let url { try? FileManager.default.removeItem(at: url) }
+        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        errorMessage = nil
     }
 
     private func toggleRecording() {
