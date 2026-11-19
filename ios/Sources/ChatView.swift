@@ -293,10 +293,10 @@ struct ChatView: View {
             } else {
                 Button(action: sendMessage) {
                     Group {
-                        if isSending { ProgressView().tint(.white) }
+                        if isSending { ProgressView().tint(SlopTheme.accentForeground) }
                         else { Image(systemName: "arrow.up").font(.system(size: 17, weight: .bold)) }
                     }
-                    .frame(width: 46, height: 46).foregroundStyle(isRecording ? Color.white : SlopTheme.accentForeground)
+                    .frame(width: 46, height: 46).foregroundStyle(SlopTheme.accentForeground)
                     .background(accent).clipShape(Circle())
                 }
                 .disabled(isSending)
@@ -721,7 +721,7 @@ struct ChatView: View {
         }
         .padding(13)
         .frame(maxWidth: 310)
-        .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 19, style: .continuous))
+        .background(SlopTheme.surface, in: RoundedRectangle(cornerRadius: 19, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 19, style: .continuous)
                 .stroke(Color.primary.opacity(0.055), lineWidth: 0.8)
