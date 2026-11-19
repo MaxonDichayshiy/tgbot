@@ -19,7 +19,9 @@ on:
           - rainbow
   push:
     paths:
-      - "desktop/**"
+      - "desktop/src-tauri/**"
+      - "desktop/scripts/**"
+      - "Brand book/icons/lime/square-1024.png"
       - ".github/workflows/build-desktop.yml"
 
 jobs:
