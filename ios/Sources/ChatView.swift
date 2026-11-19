@@ -332,6 +332,8 @@ struct ChatView: View {
                     .font(.system(size: 19, weight: .semibold))
                     .frame(width: 42, height: 46)
                     .foregroundStyle(accent)
+                    .background(SlopTheme.controlSurface, in: Circle())
+                    .overlay(Circle().stroke(SlopTheme.subtleBorder, lineWidth: 0.8))
                     .contentShape(Rectangle())
             }
             .accessibilityLabel("Добавить вложение")

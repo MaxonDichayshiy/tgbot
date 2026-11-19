@@ -33,7 +33,7 @@ struct LegalInfoView: View {
                 }
                 .padding(20)
             }
-            .background(SlopTheme.canvas)
+            .background(SlopTheme.canvas.ignoresSafeArea())
             .navigationTitle("Правовой уголок")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -46,7 +46,7 @@ struct LegalInfoView: View {
 
     private func section(_ title: String, _ body: String) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(title).font(.headline)
+            Text(title).font(.custom("AvenirNext-DemiBold", size: 16))
             Text(body).font(.subheadline).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -60,8 +60,10 @@ struct CreatorInfoView: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 18) {
-                Image(systemName: "person.crop.circle.fill")
-                    .font(.system(size: 64)).foregroundStyle(accent)
+                AnimatedMascotView(name: "SlopchikWink")
+                    .frame(width: 76, height: 76)
+                    .padding(10)
+                    .background(accent.opacity(0.14), in: Circle())
                 VStack(spacing: 6) {
                     Text("Создатель Слопчика")
                         .font(.title2.weight(.bold))
@@ -80,7 +82,7 @@ struct CreatorInfoView: View {
                 Spacer()
             }
             .padding(28).frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(SlopTheme.canvas)
+            .background(SlopTheme.canvas.ignoresSafeArea())
             .navigationTitle("О создателе")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

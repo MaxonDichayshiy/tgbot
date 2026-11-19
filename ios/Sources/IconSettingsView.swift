@@ -36,7 +36,7 @@ struct IconSettingsView: View {
                 VStack(alignment: .leading, spacing: 18) {
                     VStack(alignment: .leading, spacing: 6) {
                         Text("Выбери свой стиль")
-                            .font(.system(size: 25, weight: .bold, design: .rounded))
+                            .font(.custom("AvenirNext-Heavy", size: 25))
                         Text("Иконка изменится и на экране «Домой», и в библиотеке приложений.")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
@@ -51,14 +51,14 @@ struct IconSettingsView: View {
                             .font(.footnote)
                             .foregroundStyle(.red)
                     }
-                    Text("Новые варианты будут появляться в следующих обновлениях Слопчика.")
+                    Text("Выбирай оттенок из фирменной палитры Слопчика.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                         .padding(.top, 2)
                 }
                 .padding(18)
             }
-            .background(SlopTheme.canvas)
+            .background(SlopTheme.canvas.ignoresSafeArea())
             .navigationTitle("Иконка приложения")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -87,7 +87,7 @@ struct IconSettingsView: View {
                         .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
                         .overlay {
                             RoundedRectangle(cornerRadius: 22, style: .continuous)
-                                .stroke(isSelected ? SlopTheme.accent : Color.black.opacity(0.06), lineWidth: isSelected ? 3 : 1)
+                                .stroke(isSelected ? SlopTheme.accent : SlopTheme.subtleBorder, lineWidth: isSelected ? 3 : 1)
                         }
                     if isSelected {
                         Image(systemName: "checkmark.circle.fill")
@@ -99,7 +99,7 @@ struct IconSettingsView: View {
                 }
                 VStack(alignment: .leading, spacing: 3) {
                     Text(option.title)
-                        .font(.system(size: 16, weight: .semibold))
+                        .font(.custom("AvenirNext-DemiBold", size: 16))
                         .foregroundStyle(.primary)
                     Text(option.subtitle)
                         .font(.system(size: 12))
@@ -109,8 +109,8 @@ struct IconSettingsView: View {
             }
             .padding(10)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-            .slopGlass(cornerRadius: 20)
+            .background(SlopTheme.surface, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).stroke(SlopTheme.subtleBorder, lineWidth: 0.8))
             .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
         }
         .buttonStyle(.plain)
