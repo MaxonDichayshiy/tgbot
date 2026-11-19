@@ -15,8 +15,8 @@ targets:
     type: application
     platform: iOS
     sources:
-      - path: Sources
-      - path: Assets.xcassets
+      - Sources
+      - Assets.xcassets
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: ru.maxondichayshiy.slopchik
