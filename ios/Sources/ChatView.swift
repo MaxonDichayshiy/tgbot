@@ -16,6 +16,7 @@ struct ChatView: View {
     @State private var isSending = false
     @State private var isLoading = true
     @State private var errorMessage: String?
+    @State private var showIconSettings = false
 
     private let apiBase = "https://tgbot-naew.onrender.com"
 
@@ -59,7 +60,10 @@ struct ChatView: View {
             }
             composer
         }
-        .background(Color(red: 0.97, green: 0.97, blue: 0.98))
+        .background(Color(red: 0.97, green: 0.96, blue: 0.94))
+        .sheet(isPresented: $showIconSettings) {
+            IconSettingsView()
+        }
         .onAppear(perform: loadHistory)
     }
 
@@ -67,7 +71,7 @@ struct ChatView: View {
         HStack(spacing: 12) {
             Image(systemName: "bubble.left.and.bubble.right.fill")
                 .font(.system(size: 22))
-                .foregroundStyle(Color(red: 0.30, green: 0.48, blue: 0.92))
+                .foregroundStyle(Color(red: 0.86, green: 0.36, blue: 0.16))
             VStack(alignment: .leading, spacing: 2) {
                 Text("Слопчик").font(.headline)
                 Text("Вы вошли как \(userName)").font(.caption).foregroundStyle(.secondary)
@@ -79,6 +83,12 @@ struct ChatView: View {
             }
             .accessibilityLabel("Новый диалог")
             Menu {
+                Button {
+                    showIconSettings = true
+                } label: {
+                    Label("Иконка приложения", systemImage: "app")
+                }
+                Divider()
                 Button("Выйти", role: .destructive, action: onLogout)
             } label: {
                 Image(systemName: "ellipsis").font(.system(size: 18, weight: .semibold))
@@ -100,12 +110,13 @@ struct ChatView: View {
                     else { Image(systemName: "arrow.up").font(.system(size: 17, weight: .bold)) }
                 }
                 .frame(width: 46, height: 46).foregroundStyle(.white)
-                .background(Color(red: 0.30, green: 0.48, blue: 0.92)).clipShape(Circle())
+                .background(Color(red: 0.86, green: 0.36, blue: 0.16)).clipShape(Circle())
             }
             .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSending)
             .opacity(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.5 : 1)
         }
         .padding(.horizontal, 12).padding(.vertical, 10)
+        .background(Color(red: 0.97, green: 0.96, blue: 0.94))
     }
 
     private func messageBubble(_ message: ChatMessage) -> some View {
@@ -115,7 +126,7 @@ struct ChatView: View {
             Text(message.text).font(.system(size: 16))
                 .foregroundStyle(isUser ? Color.white : Color.primary)
                 .padding(.horizontal, 15).padding(.vertical, 11)
-                .background(isUser ? Color(red: 0.30, green: 0.48, blue: 0.92) : .white)
+                .background(isUser ? Color(red: 0.86, green: 0.36, blue: 0.16) : .white)
                 .clipShape(RoundedRectangle(cornerRadius: 18))
             if !isUser { Spacer(minLength: 48) }
         }
