@@ -27,22 +27,4 @@ targets:
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         SWIFT_EMIT_LOC_STRINGS: YES
     info:
-      properties:
-        CFBundleIcons:
-          CFBundlePrimaryIcon:
-            CFBundleIconFiles:
-              - AppIcon
-            UIPrerenderedIcon: false
-          CFBundleAlternateIcons:
-            SlopchikCar:
-              CFBundleIconFiles:
-                - SlopchikCar
-              UIPrerenderedIcon: false
-            SlopchikYard:
-              CFBundleIconFiles:
-                - SlopchikYard
-              UIPrerenderedIcon: false
-            SlopchikNight:
-              CFBundleIconFiles:
-                - SlopchikNight
-              UIPrerenderedIcon: false
+      path: Info.plist
