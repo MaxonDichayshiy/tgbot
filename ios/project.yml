@@ -21,6 +21,8 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: ru.maxondichayshiy.slopchik
         PRODUCT_NAME: Slopchik
+        MARKETING_VERSION: "0.9.0"
+        CURRENT_PROJECT_VERSION: "1"
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_CFBundleDisplayName: Слопчик
         INFOPLIST_KEY_NSMicrophoneUsageDescription: "Слопчик использует микрофон для записи голосовых сообщений."
