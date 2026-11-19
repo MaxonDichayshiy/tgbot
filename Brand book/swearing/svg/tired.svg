@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="600" height="760" viewBox="0 0 600 760">
+<polygon points="268,168 332,168 300,222" fill="#fff" stroke="#111111" stroke-width="6" stroke-linejoin="round"/>
+<rect x="40" y="30" width="520" height="140" rx="44" fill="#fff" stroke="#111111" stroke-width="6"/>
+<rect x="274" y="164" width="52" height="12" fill="#fff"/>
+<text x="300" y="125" text-anchor="middle" font-family="Fira Sans" font-weight="900" font-size="70" fill="#111111">Ну бл**ь...</text>
+<g transform="translate(-64,79) scale(5.2)"><path d="M40 64 C40 48 54 40 70 40 C86 40 100 48 100 64 C100 76 94 84 90 88 L90 98 C90 106 80 106 80 98 L80 92 C74 93 66 93 60 91 C48 87 40 78 40 64 Z" fill="#B6F23A"/><path d="M52 61 L66 61" fill="none" stroke="#111111" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/><path d="M74 61 L88 61" fill="none" stroke="#111111" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/><circle cx="59" cy="66" r="3.5" fill="#111111"/><circle cx="81" cy="66" r="3.5" fill="#111111"/><path d="M60 79 Q65 75 70 79 Q75 83 80 79" fill="none" stroke="#111111" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/></g></svg>

@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="600" height="760" viewBox="0 0 600 760">
+<polygon points="268,168 332,168 300,222" fill="#fff" stroke="#111111" stroke-width="6" stroke-linejoin="round"/>
+<rect x="40" y="30" width="520" height="140" rx="44" fill="#fff" stroke="#111111" stroke-width="6"/>
+<rect x="274" y="164" width="52" height="12" fill="#fff"/>
+<text x="300" y="125" text-anchor="middle" font-family="Fira Sans" font-weight="900" font-size="70" fill="#111111">Е**ный рот!</text>
+<g transform="translate(-64,79) scale(5.2)"><path d="M40 64 C40 48 54 40 70 40 C86 40 100 48 100 64 C100 76 94 84 90 88 L90 98 C90 106 80 106 80 98 L80 92 C74 93 66 93 60 91 C48 87 40 78 40 64 Z" fill="#FF4D3D"/><path d="M50 51 L66 58" fill="none" stroke="#111111" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/><path d="M90 51 L74 58" fill="none" stroke="#111111" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/><circle cx="59" cy="64" r="4" fill="#111111"/><circle cx="81" cy="64" r="4" fill="#111111"/><path d="M56 74 L84 74 Q84 90 70 90 Q56 90 56 74 Z" fill="#111111"/><path d="M60 74 L80 74 L80 78 L60 78 Z" fill="#fff"/><path d="M36 50 Q31 42 37 35 M104 50 Q99 42 105 35" fill="none" stroke="#111111" stroke-width="3" stroke-linecap="round"/></g></svg>
