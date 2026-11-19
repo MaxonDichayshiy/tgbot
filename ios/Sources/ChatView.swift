@@ -3,6 +3,7 @@ import PhotosUI
 import UniformTypeIdentifiers
 import AVFoundation
 import AVKit
+import Combine
 
 private struct ChatAttachment: Identifiable {
     let id = UUID()
@@ -43,6 +44,12 @@ struct ChatView: View {
     @State private var isRecording = false
     @State private var player: AVPlayer?
     @State private var playingID: UUID?
+    @State private var playbackTime: Double = 0
+    @State private var playbackDuration: Double = 0
+    @State private var playbackVolume: Double = 1
+    @State private var isAudioPlaying = false
+    @State private var expandedAudioID: UUID?
+    @State private var isSeekingAudio = false
     @State private var promptText = ""
     @State private var selectedFile: (name: String, mime: String, data: Data)?
     @State private var showAttachmentMenu = false
@@ -129,6 +136,15 @@ struct ChatView: View {
             }
         }
         .onAppear(perform: loadHistory)
+        .onReceive(Timer.publish(every: 0.25, on: .main, in: .common).autoconnect()) { _ in
+            updatePlaybackProgress()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .AVPlayerItemDidPlayToEndTime)) { _ in
+            player?.pause()
+            player?.seek(to: .zero)
+            playbackTime = 0
+            isAudioPlaying = false
+        }
     }
 
     private var welcome: some View {
@@ -322,38 +338,7 @@ struct ChatView: View {
                 }
             }
         } else if item.type == "audio" {
-            VStack(alignment: .leading, spacing: 6) {
-                Button {
-                    playAudio(item)
-                } label: {
-                    Label(playingID == item.id ? "Воспроизводится…" : (item.title.isEmpty ? "Прослушать аудио" : item.title),
-                          systemImage: playingID == item.id ? "speaker.wave.2.fill" : "play.circle.fill")
-                        .font(.subheadline)
-                        .foregroundStyle(isUser ? .white : accent)
-                }
-                if !item.base64.isEmpty, let url = temporaryFileURL(item) {
-                    ShareLink(item: url) {
-                        Label("Поделиться аудио", systemImage: "square.and.arrow.up")
-                            .font(.caption.weight(.medium))
-                            .foregroundStyle(isUser ? Color.white.opacity(0.9) : accent)
-                    }
-                } else if let url = URL(string: item.url), !item.url.isEmpty {
-                    ShareLink(item: url) {
-                        Label("Поделиться ссылкой", systemImage: "square.and.arrow.up")
-                            .font(.caption.weight(.medium))
-                            .foregroundStyle(isUser ? Color.white.opacity(0.9) : accent)
-                    }
-                }
-            }
-        } else if item.type == "link" {
-            Button {
-                playAudio(item)
-            } label: {
-                Label(playingID == item.id ? "Воспроизводится…" : (item.title.isEmpty ? "Прослушать аудио" : item.title),
-                      systemImage: playingID == item.id ? "speaker.wave.2.fill" : "play.circle.fill")
-                    .font(.subheadline)
-                    .foregroundStyle(isUser ? .white : accent)
-            }
+            audioPlayerCard(item)
         } else if item.type == "link", let url = URL(string: item.url) {
             VStack(alignment: .leading, spacing: 6) {
                 Link(destination: url) {
@@ -573,18 +558,199 @@ struct ChatView: View {
         }
     }
 
-    private func playAudio(_ item: ChatAttachment) {
-        if !item.base64.isEmpty, let data = Data(base64Encoded: item.base64) {
-            let url = FileManager.default.temporaryDirectory.appendingPathComponent("slopchik-audio-\(item.id).mp3")
-            try? data.write(to: url)
-            player = AVPlayer(url: url)
-            playingID = item.id
-            player?.play()
-        } else if let url = URL(string: item.url) {
-            player = AVPlayer(url: url)
-            playingID = item.id
-            player?.play()
+    private func audioPlayerCard(_ item: ChatAttachment) -> some View {
+        let isCurrent = playingID == item.id
+        let title = item.title.isEmpty ? item.name : item.title
+        return VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 11) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 13, style: .continuous)
+                        .fill(LinearGradient(colors: [accent.opacity(0.95), accent.opacity(0.58)], startPoint: .topLeading, endPoint: .bottomTrailing))
+                    Image(systemName: "waveform")
+                        .font(.system(size: 23, weight: .semibold))
+                        .foregroundStyle(.white)
+                }
+                .frame(width: 54, height: 54)
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(title)
+                        .font(.system(size: 15, weight: .semibold))
+                        .lineLimit(2)
+                        .foregroundStyle(.primary)
+                    Text(isCurrent && isAudioPlaying ? "Сейчас играет" : "Аудиозапись")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 4)
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        expandedAudioID = expandedAudioID == item.id ? nil : item.id
+                    }
+                } label: {
+                    Image(systemName: expandedAudioID == item.id ? "chevron.up" : "chevron.down")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 30, height: 34)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(expandedAudioID == item.id ? "Свернуть плеер" : "Развернуть плеер")
+            }
+
+            Slider(
+                value: Binding(
+                    get: { isCurrent ? playbackTime : 0 },
+                    set: { value in
+                        isSeekingAudio = true
+                        playbackTime = value
+                        player?.seek(to: CMTime(seconds: value, preferredTimescale: 600))
+                        isSeekingAudio = false
+                    }
+                ),
+                in: 0...max(isCurrent ? playbackDuration : 0, 0.1)
+            )
+            .tint(accent)
+            .disabled(!isCurrent || playbackDuration <= 0)
+
+            HStack {
+                Text(audioTime(isCurrent ? playbackTime : 0))
+                Spacer()
+                Text(audioTime(isCurrent ? playbackDuration : 0))
+            }
+            .font(.system(size: 10, weight: .medium, design: .rounded).monospacedDigit())
+            .foregroundStyle(.secondary)
+
+            HStack(spacing: 25) {
+                Button { seekAudio(by: -15) } label: {
+                    Image(systemName: "gobackward.15")
+                        .font(.system(size: 21, weight: .regular))
+                        .foregroundStyle(.primary)
+                }
+                .buttonStyle(.plain)
+                .disabled(!isCurrent)
+
+                Button { playAudio(item) } label: {
+                    Image(systemName: isCurrent && isAudioPlaying ? "pause.fill" : "play.fill")
+                        .font(.system(size: 19, weight: .bold))
+                        .foregroundStyle(.white)
+                        .frame(width: 46, height: 46)
+                        .background(accent, in: Circle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(isCurrent && isAudioPlaying ? "Пауза" : "Воспроизвести")
+
+                Button { seekAudio(by: 15) } label: {
+                    Image(systemName: "goforward.15")
+                        .font(.system(size: 21, weight: .regular))
+                        .foregroundStyle(.primary)
+                }
+                .buttonStyle(.plain)
+                .disabled(!isCurrent)
+
+                Spacer()
+                if !item.base64.isEmpty, let url = temporaryFileURL(item) {
+                    ShareLink(item: url) {
+                        Image(systemName: "square.and.arrow.up")
+                            .font(.system(size: 17, weight: .medium))
+                            .foregroundStyle(.secondary)
+                    }
+                } else if let url = URL(string: item.url), !item.url.isEmpty {
+                    ShareLink(item: url) {
+                        Image(systemName: "square.and.arrow.up")
+                            .font(.system(size: 17, weight: .medium))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+            .padding(.top, 1)
+
+            if expandedAudioID == item.id {
+                Divider().overlay(Color.primary.opacity(0.06))
+                HStack(spacing: 9) {
+                    Image(systemName: "speaker.fill").foregroundStyle(.secondary)
+                    Slider(value: $playbackVolume, in: 0...1)
+                        .tint(accent)
+                        .onChange(of: playbackVolume) { value in
+                            if isCurrent { player?.volume = Float(value) }
+                        }
+                    Image(systemName: "speaker.wave.3.fill").foregroundStyle(.secondary)
+                }
+                .font(.caption)
+            }
         }
+        .padding(13)
+        .frame(maxWidth: 310)
+        .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 19, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 19, style: .continuous)
+                .stroke(Color.primary.opacity(0.055), lineWidth: 0.8)
+        }
+    }
+
+    private func playAudio(_ item: ChatAttachment) {
+        if playingID == item.id, let player {
+            if isAudioPlaying {
+                player.pause()
+                isAudioPlaying = false
+            } else {
+                player.play()
+                isAudioPlaying = true
+            }
+            return
+        }
+
+        let audioURL: URL?
+        if !item.base64.isEmpty {
+            audioURL = temporaryFileURL(item)
+        } else {
+            audioURL = URL(string: item.url)
+        }
+        guard let audioURL else {
+            errorMessage = "Не удалось открыть аудиофайл."
+            return
+        }
+
+        do {
+            try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default)
+            try AVAudioSession.sharedInstance().setActive(true)
+        } catch {
+            errorMessage = "Не удалось настроить воспроизведение: \(error.localizedDescription)"
+        }
+
+        player?.pause()
+        player = AVPlayer(url: audioURL)
+        player?.volume = Float(playbackVolume)
+        playingID = item.id
+        playbackTime = 0
+        playbackDuration = 0
+        isAudioPlaying = true
+        player?.play()
+    }
+
+    private func seekAudio(by seconds: Double) {
+        guard let player else { return }
+        let target = max(0, min(playbackDuration, playbackTime + seconds))
+        player.seek(to: CMTime(seconds: target, preferredTimescale: 600))
+        playbackTime = target
+    }
+
+    private func updatePlaybackProgress() {
+        guard let player, playingID != nil else { return }
+        let current = player.currentTime().seconds
+        let duration = player.currentItem?.duration.seconds ?? 0
+        if current.isFinite && !isSeekingAudio { playbackTime = max(0, current) }
+        if duration.isFinite && duration > 0 { playbackDuration = duration }
+        if player.timeControlStatus == .paused && isAudioPlaying {
+            isAudioPlaying = false
+        } else if player.timeControlStatus == .playing && !isAudioPlaying {
+            isAudioPlaying = true
+        }
+    }
+
+    private func audioTime(_ seconds: Double) -> String {
+        guard seconds.isFinite && seconds >= 0 else { return "0:00" }
+        let total = Int(seconds)
+        return String(format: "%d:%02d", total / 60, total % 60)
     }
 
     private var promptSheet: some View {
