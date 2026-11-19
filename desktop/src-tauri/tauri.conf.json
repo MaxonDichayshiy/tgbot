@@ -1,0 +1,32 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Слопчик",
+  "version": "0.1.0",
+  "identifier": "ru.slopchik.desktop",
+  "build": {
+    "beforeBuildCommand": "",
+    "beforeDevCommand": "",
+    "frontendDist": "../ui"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Слопчик",
+        "width": 1280,
+        "height": 820,
+        "minWidth": 900,
+        "minHeight": 620,
+        "url": "https://tgbot-naew.onrender.com/desktop/"
+      }
+    ],
+    "security": {
+      "capabilities": ["desktop-remote"]
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis", "msi"],
+    "shortDescription": "Слопчик — твой AI-помощник",
+    "category": "Productivity"
+  }
+}
