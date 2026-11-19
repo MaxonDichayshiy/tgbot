@@ -1,0 +1,8 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "desktop-remote",
+  "description": "Permissions for the hosted Slopchik desktop client",
+  "windows": ["main"],
+  "remote": { "urls": ["https://tgbot-naew.onrender.com/*"] },
+  "permissions": ["core:default"]
+}
