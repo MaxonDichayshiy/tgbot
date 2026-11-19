@@ -28,8 +28,7 @@
   "bundle": {
     "active": true,
     "targets": [
-      "nsis",
-      "msi"
+      "nsis"
     ],
     "shortDescription": "Слопчик — твой AI-помощник",
     "category": "Productivity",
