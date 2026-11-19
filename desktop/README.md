@@ -12,7 +12,7 @@ cargo install tauri-cli --version "^2" --locked
 cargo tauri build
 ```
 
-The regular CI build produces the NSIS `.exe` installer. The `.ico` file is only the Windows application icon.
+The regular CI build produces the NSIS `.exe` installer. The Windows icon is generated from the original assets in `Brand book/icons/` before packaging. The standard icon is the official lime variant.\n\nTo build locally with a selected official icon, install Pillow and run the generator before `cargo tauri build`:\n\n```powershell\npython -m pip install Pillow\npython desktop/scripts/generate_windows_icon.py lime\ncd desktop/src-tauri\ncargo tauri build\n```\n\nSupported variants: `lime`, `lime-invert`, `purple`, `orange`, `pink`, `blue`, `teal`, `rainbow`. The GitHub Actions workflow `Build Slopchik Desktop` lets you choose the Windows installer icon when started manually.\n\nThe in-app icon picker changes the brand mark shown inside the interface. The Windows shortcut and Start menu icon are fixed at installer build time.
 
 ## Automatic updates
 
@@ -28,7 +28,7 @@ Tauri requires a stable signing keypair. Keep the private key private and back i
    cargo tauri signer generate -w "$env:USERPROFILE\.tauri\slopchik.key"
    ```
 
-2. Copy the contents of `slopchik.key.pub` into `plugins.updater.pubkey` in `tauri.conf.json`, replacing `PUBLIC_KEY_PENDING`.
+2. The matching public key is already configured in `tauri.conf.json`; do not replace it unless you intentionally rotate the signing keypair. Keep the public and private keys matched.
 3. In GitHub repository Settings → Secrets and variables → Actions, create:
    - `TAURI_SIGNING_PRIVATE_KEY`: the full contents of `slopchik.key`
    - `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`: the password used when generating the key (leave empty only if no password was set).
