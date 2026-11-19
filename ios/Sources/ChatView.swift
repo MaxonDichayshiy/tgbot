@@ -268,10 +268,10 @@ struct ChatView: View {
             } label: {
                 Image(systemName: "line.3.horizontal")
                     .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(.primary)
+                    .foregroundStyle(colorScheme == .dark ? Color.white : SlopTheme.ink)
                     .frame(width: 42, height: 42)
-                    .background(SlopTheme.controlSurface, in: Circle())
-                    .overlay(Circle().stroke(SlopTheme.subtleBorder, lineWidth: 0.8))
+                    .background(colorScheme == .dark ? Color.white.opacity(0.13) : SlopTheme.ink.opacity(0.055), in: Circle())
+                    .overlay(Circle().stroke(colorScheme == .dark ? Color.white.opacity(0.24) : SlopTheme.ink.opacity(0.14), lineWidth: 1))
                     .contentShape(Circle())
             }
             .accessibilityLabel("Меню")
