@@ -453,4 +453,4 @@ def mount(app: web.Application, c):
         return web.FileResponse(path)
 
     app.router.add_get("/app/{name}", static)
-    log.info("web-приложение: /app/ (коды: %s)", "заданы" if codes else "не заданы — вход только через Telegram")
+    log.info("web-приложение: /app/ (коды: %s)", "заданы" if _APP_LOGIN_CODES else "не заданы — вход только через Telegram")
