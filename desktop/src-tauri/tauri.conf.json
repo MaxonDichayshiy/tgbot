@@ -43,7 +43,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "untrusted comment: minisign public key: 5EBB0737B1633160\nRWRgMWOxNwe7XoNN6l2iTpSvNAdOqBKzJZiM0pr8Xr6VtyOl4JQzUUqF",
+      "pubkey": "RWRgMWOxNwe7XoNN6l2iTpSvNAdOqBKzJZiM0pr8Xr6VtyOl4JQzUUqF",
       "endpoints": [
         "https://github.com/MaxonDichayshiy/tgbot/releases/latest/download/latest.json"
       ],
