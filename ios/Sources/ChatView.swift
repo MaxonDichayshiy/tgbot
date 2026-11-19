@@ -279,14 +279,15 @@ struct ChatView: View {
 
             HStack(spacing: 10) {
                 AnimatedMascotView(name: mascotAnimationName)
-                    .frame(width: 44, height: 44)
-                    .background(accent.opacity(0.15), in: Circle())
-                    .overlay(Circle().stroke(accent.opacity(0.22), lineWidth: 1))
+                    .frame(width: 36, height: 36)
+                    .background(accent.opacity(0.16), in: Circle())
+                    .overlay(Circle().stroke(accent.opacity(0.28), lineWidth: 1))
+                    .clipped()
                 VStack(alignment: .leading, spacing: 1) {
                     Text("Слопчик")
-                        .font(.custom("AvenirNext-Heavy", size: 21))
-                        .tracking(-0.65)
-                        .foregroundStyle(.primary)
+                        .font(.custom("AvenirNext-Heavy", size: 22))
+                        .tracking(-0.7)
+                        .foregroundStyle(LinearGradient(colors: colorScheme == .dark ? [Color.white, Color(red: 0.78, green: 0.98, blue: 0.43)] : [SlopTheme.ink, Color(red: 0.25, green: 0.31, blue: 0.17)], startPoint: .leading, endPoint: .trailing))
                     Text(currentGreeting)
                         .font(.custom("AvenirNext-Medium", size: 11))
                         .foregroundStyle(.secondary)
