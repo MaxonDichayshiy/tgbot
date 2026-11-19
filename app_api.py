@@ -16,6 +16,7 @@ import json
 import logging
 import os
 import re
+import secrets
 import time
 from pathlib import Path
 from urllib.parse import parse_qsl
@@ -32,17 +33,25 @@ RATE = 25  # запросов в минуту на пользователя
 MAX_UPLOAD = 9_000_000
 
 
-def parse_codes() -> dict:
-    out = {}
-    for part in os.getenv("APP_CODES", "").split(","):
-        part = part.strip()
-        if not part:
-            continue
-        name, _, code = part.partition(":")
-        if not code:
-            name, code = "Пользователь", name
-        out[code.strip()] = name.strip()
-    return out
+# Одноразовые коды входа. Живут только в памяти процесса и действуют 5 минут.
+_APP_LOGIN_CODES: dict = {}
+_APP_CODE_ISSUED: dict = {}
+
+
+def create_login_code(uid: int, name: str) -> str:
+    """Создаёт короткоживущий одноразовый код для подтверждённого Telegram-пользователя."""
+    now = time.time()
+    if now - _APP_CODE_ISSUED.get(uid, 0) < 10:
+        raise ValueError("Подождите несколько секунд перед новым запросом кода.")
+    code = secrets.token_urlsafe(6)
+    digest = hashlib.sha256(code.encode()).hexdigest()
+    _APP_LOGIN_CODES[digest] = (int(uid), str(name)[:80], now + 300)
+    _APP_CODE_ISSUED[uid] = now
+    # Удаляем просроченные записи, чтобы словарь не рос бесконечно.
+    for key, value in list(_APP_LOGIN_CODES.items()):
+        if value[2] <= now:
+            _APP_LOGIN_CODES.pop(key, None)
+    return code
 
 
 # ---------------- токены и вход ----------------
@@ -323,7 +332,6 @@ async def respond(c, state: FSMContext, text: str, att=None) -> dict:
 
 # ---------------- HTTP ----------------
 def mount(app: web.Application, c):
-    codes = parse_codes()
     bot_id = int(c.BOT_TOKEN.split(":")[0])
 
     def state_for(uid: int) -> FSMContext:
@@ -350,11 +358,17 @@ def mount(app: web.Application, c):
             name = u.get("first_name") or u.get("username") or "Telegram"
             return web.json_response({"token": make_token(c, int(u["id"]), name), "name": name, "mode": "telegram"})
         code = str(body.get("code", "")).strip()
-        for k, name in codes.items():  # перебор без утечки по времени
-            if hmac.compare_digest(k.encode(), code.encode()) and code:
-                return web.json_response({"token": make_token(c, code_uid(k), name), "name": name, "mode": "code"})
-        await asyncio.sleep(1.0)  # притормаживаем подбор кода
-        return web.json_response({"error": "Неверный код"}, status=403)
+        if code:
+            digest = hashlib.sha256(code.encode()).hexdigest()
+            entry = _APP_LOGIN_CODES.get(digest)
+            if entry and entry[2] > time.time() and hmac.compare_digest(digest, hashlib.sha256(code.encode()).hexdigest()):
+                # Одноразовое использование: удаляем до выдачи токена.
+                _APP_LOGIN_CODES.pop(digest, None)
+                uid, name, _ = entry
+                if c.allowed(uid):
+                    return web.json_response({"token": make_token(c, uid, name), "name": name, "mode": "telegram"})
+        await asyncio.sleep(0.8)
+        return web.json_response({"error": "Код неверный или уже истёк. Запросите новый в Telegram через /app."}, status=403)
 
     async def history(request):
         uid, _ = auth(request)
