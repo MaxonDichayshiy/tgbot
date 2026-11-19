@@ -119,6 +119,13 @@ struct ChatView: View {
         .sheet(isPresented: $showCreatorInfo) { CreatorInfoView() }
         .photosPicker(isPresented: $showPhotoPicker, selection: $selectedPhoto, matching: .images)
         .fileImporter(isPresented: $showFilePicker, allowedContentTypes: [.item], allowsMultipleSelection: false, onCompletion: handleFileImport)
+        .confirmationDialog("Добавить вложение", isPresented: $showAttachmentMenu, titleVisibility: .visible) {
+            Button("Фото и изображения", systemImage: "photo.on.rectangle") { showPhotoPicker = true }
+            Button("Файл или документ", systemImage: "doc") { showFilePicker = true }
+            Button("Отмена", role: .cancel) {}
+        } message: {
+            Text("Выбери, что хочешь прикрепить к сообщению")
+        }
         .onChange(of: selectedPhoto) { item in
             guard let item else { return }
             Task {
@@ -318,15 +325,9 @@ struct ChatView: View {
     private var composer: some View {
         VStack(spacing: 0) {
             HStack(alignment: .bottom, spacing: 8) {
-            Menu {
-                Section("Вложения") {
-                    Button { showPhotoPicker = true } label: {
-                        Label("Фото и изображения", systemImage: "photo.on.rectangle")
-                    }
-                    Button { showFilePicker = true } label: {
-                        Label("Файл или документ", systemImage: "doc")
-                    }
-                }
+            Button {
+                isComposerFocused = false
+                showAttachmentMenu = true
             } label: {
                 Image(systemName: "plus")
                     .font(.system(size: 19, weight: .semibold))
@@ -334,8 +335,9 @@ struct ChatView: View {
                     .foregroundStyle(accent)
                     .background(SlopTheme.controlSurface, in: Circle())
                     .overlay(Circle().stroke(SlopTheme.subtleBorder, lineWidth: 0.8))
-                    .contentShape(Rectangle())
+                    .contentShape(Circle())
             }
+            .buttonStyle(.plain)
             .accessibilityLabel("Добавить вложение")
             TextField("Сообщение…", text: $draft, axis: .vertical)
                 .focused($isComposerFocused)
