@@ -531,7 +531,9 @@ struct ChatView: View {
     private func temporaryFileURL(_ item: ChatAttachment) -> URL? {
         guard let data = Data(base64Encoded: item.base64) else { return nil }
         let safeName = item.name.replacingOccurrences(of: "/", with: "_")
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent(safeName)
+        let inferredExtension = UTType(mimeType: item.mime)?.preferredFilenameExtension ?? "bin"
+        let fileName = (safeName as NSString).pathExtension.isEmpty ? "\(safeName).\(inferredExtension)" : safeName
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(fileName)
         do {
             try data.write(to: url, options: .atomic)
             return url
