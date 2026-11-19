@@ -237,9 +237,9 @@ struct ChatView: View {
                 Label(item.title.isEmpty ? "Открыть ссылку" : item.title, systemImage: "play.rectangle")
                     .font(.subheadline).foregroundStyle(isUser ? .white : accent)
             }
-        } else if item.type == "file", let data = Data(base64Encoded: item.base64) {
-            ShareLink(item: FileRepresentation(data: data, filename: item.name)) {
-                Label("Скачать \(item.name)", systemImage: "doc")
+        } else if item.type == "file", let url = temporaryFileURL(item) {
+            ShareLink(item: url) {
+                Label("Сохранить \(item.name)", systemImage: "doc")
                     .font(.subheadline).foregroundStyle(isUser ? .white : accent)
             }
         }
@@ -421,6 +421,18 @@ struct ChatView: View {
                 if !answer.isEmpty { messages.append(ChatMessage(role: "assistant", text: answer)) }
             }
         }.resume()
+    }
+
+    private func temporaryFileURL(_ item: ChatAttachment) -> URL? {
+        guard let data = Data(base64Encoded: item.base64) else { return nil }
+        let safeName = item.name.replacingOccurrences(of: "/", with: "_")
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(safeName)
+        do {
+            try data.write(to: url, options: .atomic)
+            return url
+        } catch {
+            return nil
+        }
     }
 
     private func playAudio(_ item: ChatAttachment) {
