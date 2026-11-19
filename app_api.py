@@ -27,7 +27,8 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.storage.base import StorageKey
 
 log = logging.getLogger("app")
-APP_DIR = Path(__file__).parent / "webapp"\nDESKTOP_DIR = Path(__file__).parent / "desktop"
+APP_DIR = Path(__file__).parent / "webapp"
+DESKTOP_DIR = Path(__file__).parent / "desktop"
 TOKEN_TTL = 30 * 24 * 3600
 RATE = 25  # запросов в минуту на пользователя
 MAX_UPLOAD = 9_000_000
@@ -426,7 +427,10 @@ def mount(app: web.Application, c):
     async def index(request):
         return web.FileResponse(APP_DIR / "index.html", headers={"Cache-Control": "no-cache"})
 
-    async def desktop_index(request):\n        return web.FileResponse(DESKTOP_DIR / "index.html", headers={"Cache-Control": "no-cache"})\n\n    async def sw(request):
+    async def desktop_index(request):
+        return web.FileResponse(DESKTOP_DIR / "index.html", headers={"Cache-Control": "no-cache"})
+
+    async def sw(request):
         return web.FileResponse(APP_DIR / "sw.js", headers={"Cache-Control": "no-cache", "Content-Type": "application/javascript"})
 
     async def manifest(request):
@@ -438,7 +442,9 @@ def mount(app: web.Application, c):
     app.router.add_post("/api/voice", voice)
     app.router.add_post("/api/reset", reset)
     app.router.add_post("/api/prompt", prompt)
-    app.router.add_get("/desktop", lambda r: web.HTTPFound("/desktop/"))\n    app.router.add_get("/desktop/", desktop_index)\n    app.router.add_get("/app", lambda r: web.HTTPFound("/app/"))
+    app.router.add_get("/desktop", lambda r: web.HTTPFound("/desktop/"))
+    app.router.add_get("/desktop/", desktop_index)
+    app.router.add_get("/app", lambda r: web.HTTPFound("/app/"))
     app.router.add_get("/app/", index)
     app.router.add_get("/app/sw.js", sw)
     app.router.add_get("/app/manifest.webmanifest", manifest)
