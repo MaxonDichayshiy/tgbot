@@ -534,8 +534,14 @@ async def _fetch(sess, url: str, kinds: tuple, limit: int):
             ct = (r.content_type or "").lower()
             if not (ct.startswith(kinds) or ct == "application/octet-stream"):
                 return None
-            data = await r.content.read(limit + 1)
-            return data if 0 < len(data) <= limit else None
+            if r.content_length is not None and r.content_length > limit:
+                return None
+            chunks = bytearray()
+            async for chunk in r.content.iter_chunked(64 * 1024):
+                chunks.extend(chunk)
+                if len(chunks) > limit:
+                    return None
+            return bytes(chunks) if chunks else None
     except Exception:
         return None
 
@@ -582,36 +588,26 @@ async def search_jamendo(sess, q: str) -> list:
     toks = [w for w in re.findall(r"\w+", q.lower()) if len(w) >= 3]
     res = []
     for t in (j or {}).get("results", []):
-        if not t.get("audio"):
+        # Отправляем только полные файлы, которые автор разрешил скачивать.
+        download_url = t.get("audiodownload")
+        if not t.get("audiodownload_allowed") or not download_url:
             continue
         hay = (" ".join(str(t.get(k, "")) for k in ("name", "artist_name", "album_name"))
                + " " + json.dumps(t.get("musicinfo") or {}, ensure_ascii=False)).lower()
         if toks and sum(w in hay for w in toks) < max(1, (len(toks) + 1) // 2):
             continue  # не подсовываем случайный трек, когда просили конкретную песню
-        res.append({"title": t.get("name", "Track"), "artist": t.get("artist_name", ""), "preview": t["audio"],
+        res.append({"title": t.get("name", "Track"), "artist": t.get("artist_name", ""), "preview": download_url,
                     "link": t.get("shareurl", ""), "ext": "mp3", "cover": t.get("image", ""),
                     "dur": int(t.get("duration") or 0), "full": True, "license": t.get("license_ccurl", "")})
     return res
 
 
 async def search_music(sess, q: str) -> list:
+    # Не подменяем полный трек 30-секундными превью Deezer/iTunes.
     out = await search_jamendo(sess, q)
-    n_full = len(out)
-    j = await _json(sess, f"https://api.deezer.com/search?q={quote(q)}&limit=5")
-    for t in (j or {}).get("data", []):
-        if t.get("preview"):
-            out.append({"title": t["title"], "artist": t["artist"]["name"], "preview": t["preview"], "link": t.get("link", ""),
-                        "ext": "mp3", "cover": (t.get("album") or {}).get("cover_medium", "")})
-    if len(out) == n_full:
-        j = await _json(sess, f"https://itunes.apple.com/search?term={quote(q)}&entity=song&limit=5")
-        for t in (j or {}).get("results", []):
-            if t.get("previewUrl"):
-                out.append({"title": t["trackName"], "artist": t["artistName"], "preview": t["previewUrl"], "link": t.get("trackViewUrl", ""),
-                            "ext": "m4a", "cover": t.get("artworkUrl100", "")})
     for t in out:
         t["yt"] = "https://www.youtube.com/results?search_query=" + quote(f'{t["artist"]} {t["title"]}')
     return out
-
 
 MUSIC: dict = {}  # key -> {"tracks": [...]} для кнопок ⏮ ⏭
 
@@ -655,6 +651,9 @@ def _audio_kwargs(t: dict, thumb):
 
 async def send_music(m: Message, sess, q: str) -> bool:
     tracks = (await search_music(sess, q))[:8]
+    if not tracks:
+        await out(m)("Не нашёл полный трек, который разрешено отправлять файлом. Попробуйте уточнить название или исполнителя.")
+        return True
     for i, t in enumerate(tracks):
         data, thumb = await track_media(sess, t)
         if not data:
