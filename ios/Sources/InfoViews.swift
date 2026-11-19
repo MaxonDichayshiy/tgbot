@@ -33,7 +33,7 @@ struct LegalInfoView: View {
                 }
                 .padding(20)
             }
-            .background(Color(uiColor: .systemGroupedBackground))
+            .background(SlopTheme.canvas)
             .navigationTitle("Правовой уголок")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -80,7 +80,7 @@ struct CreatorInfoView: View {
                 Spacer()
             }
             .padding(28).frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(Color(uiColor: .systemGroupedBackground))
+            .background(SlopTheme.canvas)
             .navigationTitle("О создателе")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
