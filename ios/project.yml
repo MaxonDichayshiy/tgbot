@@ -23,6 +23,7 @@ targets:
         PRODUCT_NAME: Slopchik
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_CFBundleDisplayName: Слопчик
+        INFOPLIST_KEY_NSMicrophoneUsageDescription: "Слопчик использует микрофон для записи голосовых сообщений."
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES: "SlopchikCar SlopchikYard SlopchikNight"
         SWIFT_EMIT_LOC_STRINGS: YES
