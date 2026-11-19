@@ -130,12 +130,18 @@ def write_asset(name, image, app_icon=False):
     (folder / "Contents.json").write_text(json.dumps(contents, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 ASSETS.mkdir(parents=True, exist_ok=True)
+# The primary icon is compiled as the app's main icon.
+write_asset("AppIcon", make_icon("classic"), app_icon=True)
+
+# Keep preview images in ordinary image sets, and provide separate app-icon
+# sets for iOS alternate-icon switching.
 for kind, app_name in [
-    ("classic", "AppIcon"),
     ("classic", "SlopchikClassic"),
     ("car", "SlopchikCar"),
     ("yard", "SlopchikYard"),
     ("night", "SlopchikNight"),
 ]:
     image = make_icon(kind)
-    write_asset(app_name, image, app_icon=app_name != "SlopchikClassic")
+    write_asset(app_name, image, app_icon=False)
+    if app_name != "SlopchikClassic":
+        write_asset(app_name, image, app_icon=True)
