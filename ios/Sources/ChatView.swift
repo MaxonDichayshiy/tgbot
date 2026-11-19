@@ -46,9 +46,10 @@ struct ChatView: View {
     @State private var promptText = ""
     @State private var selectedFile: (name: String, mime: String, data: Data)?
     @State private var showAttachmentMenu = false
+    @AppStorage("slopchik.theme") private var themeRaw = SlopThemeMode.system.rawValue
 
     private let apiBase = "https://tgbot-naew.onrender.com"
-    private let accent = Color(red: 0.86, green: 0.36, blue: 0.16)
+    private let accent = SlopTheme.accent
 
     var body: some View {
         VStack(spacing: 0) {
@@ -92,11 +93,11 @@ struct ChatView: View {
                     }
                 }
                 .font(.footnote).padding(.horizontal, 14).padding(.vertical, 8)
-                .background(.white)
+                .background(Color(uiColor: .secondarySystemGroupedBackground))
             }
             composer
         }
-        .background(Color(red: 0.97, green: 0.96, blue: 0.94))
+        .background(Color(uiColor: .systemGroupedBackground))
         .sheet(isPresented: $showIconSettings) { IconSettingsView() }
         .sheet(isPresented: $showPromptSettings) { promptSheet }
         .sheet(isPresented: $showLegalInfo) { LegalInfoView() }
@@ -171,6 +172,19 @@ struct ChatView: View {
                 }
                 Button { showCreatorInfo = true } label: {
                     Label("О создателе", systemImage: "person.crop.circle")
+                }
+                Menu {
+                    Button { themeRaw = SlopThemeMode.light.rawValue } label: {
+                        Label("Светлая", systemImage: themeRaw == "light" ? "checkmark.circle.fill" : "sun.max")
+                    }
+                    Button { themeRaw = SlopThemeMode.dark.rawValue } label: {
+                        Label("Тёмная", systemImage: themeRaw == "dark" ? "checkmark.circle.fill" : "moon")
+                    }
+                    Button { themeRaw = SlopThemeMode.system.rawValue } label: {
+                        Label("Как в системе", systemImage: themeRaw == "system" ? "checkmark.circle.fill" : "iphone")
+                    }
+                } label: {
+                    Label("Тема оформления", systemImage: "circle.lefthalf.filled")
                 }
                 Divider()
                 Button("Выйти", role: .destructive, action: onLogout)
@@ -253,7 +267,7 @@ struct ChatView: View {
             }
             .padding(.horizontal, 15).padding(.vertical, 11)
             .background(isUser ? accent : Color.white)
-            .clipShape(RoundedRectangle(cornerRadius: 18))
+            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
             if !isUser { Spacer(minLength: 42) }
         }
         .frame(maxWidth: .infinity)
