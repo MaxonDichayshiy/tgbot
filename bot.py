@@ -1542,6 +1542,28 @@ async def cmd_mod_help(m: Message):
 
 
 # ================= хендлеры =================
+@router.message(Command("app"))
+async def cmd_app(m: Message):
+    uid = who(m)
+    if not allowed(uid):
+        return await m.answer("⛔ Нет доступа.")
+    try:
+        import app_api
+        name = m.from_user.first_name or m.from_user.username or "Telegram"
+        code = app_api.create_login_code(uid, name)
+    except ValueError as e:
+        return await m.answer(esc(str(e)))
+    except Exception:
+        log.exception("app login code")
+        return await m.answer("Не удалось создать код. Попробуйте позже.")
+    await m.answer(
+        "<b>Вход в Слопчик для iOS</b>\\n\\n"
+        f"Ваш одноразовый код: <code>{esc(code)}</code>\\n"
+        "Введите его в приложении. Код действует 5 минут и подходит только для одного входа.\\n\\n"
+        "Если вы не запрашивали вход, просто проигнорируйте это сообщение."
+    )
+
+
 @router.message(CommandStart())
 @router.message(Command("help"))
 async def cmd_start(m: Message, state: FSMContext):
@@ -1904,6 +1926,7 @@ async def main():
             BotCommand(command="reset", description="Новый диалог"),
             BotCommand(command="status", description="Состояние нейросетей"),
             BotCommand(command="help", description="Помощь"),
+            BotCommand(command="app", description="Код входа в приложение Слопчик"),
         ]
     )
     try:
