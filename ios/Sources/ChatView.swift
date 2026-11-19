@@ -614,7 +614,7 @@ struct ChatView: View {
                         .fill(LinearGradient(colors: [accent.opacity(0.95), accent.opacity(0.58)], startPoint: .topLeading, endPoint: .bottomTrailing))
                     Image(systemName: "waveform")
                         .font(.system(size: 23, weight: .semibold))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(SlopTheme.accentForeground)
                 }
                 .frame(width: 54, height: 54)
 
@@ -679,7 +679,7 @@ struct ChatView: View {
                 Button { playAudio(item) } label: {
                     Image(systemName: isCurrent && isAudioPlaying ? "pause.fill" : "play.fill")
                         .font(.system(size: 19, weight: .bold))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(SlopTheme.accentForeground)
                         .frame(width: 46, height: 46)
                         .background(accent, in: Circle())
                 }
