@@ -468,7 +468,6 @@ async def transcribe(audio: bytes, mime: str = "audio/ogg"):
 # только пользовательские аккаунты. Поэтому бот ходит в те же открытые источники напрямую.
 UA = {"User-Agent": "Mozilla/5.0 (compatible; TgBot/1.0)"}
 GIPHY_KEY = os.getenv("GIPHY_API_KEY", "")
-JAMENDO_ID = os.getenv("JAMENDO_CLIENT_ID", "")
 TENOR_KEY = os.getenv("TENOR_API_KEY", "")
 
 _M_NOUN = (r"(картин\w*|фото\w*|изображени\w*|пикч\w*|мем\w*|обои|гиф\w*|gif\w*|анимаци\w*|песн\w*|трек\w*|"
@@ -579,32 +578,81 @@ async def search_images(sess, q: str, gif: bool) -> list:
     return list(dict.fromkeys(urls))
 
 
-async def search_jamendo(sess, q: str) -> list:
-    """Полные треки со свободной лицензией (Creative Commons). Подходит для жанров, настроения и инди-музыки."""
-    if not JAMENDO_ID:
-        return []
-    j = await _json(sess, "https://api.jamendo.com/v3.0/tracks/?format=json&limit=8&audioformat=mp32&include=musicinfo"
-                          f"&order=relevance&client_id={JAMENDO_ID}&search={quote(q)}")
-    toks = [w for w in re.findall(r"\w+", q.lower()) if len(w) >= 3]
+def _audius_license_allowed(value: str) -> bool:
+    """Разрешаем отправку только треков с открытой лицензией, допускающей распространение."""
+    license_id = (value or "").lower().strip()
+    allowed = {
+        "cc0", "cc-0", "cc-by", "cc-by-4.0", "cc-by-sa", "cc-by-sa-4.0",
+        "cc-by-nd", "cc-by-nd-4.0",
+    }
+    if license_id in allowed:
+        return True
+    return any(
+        marker in license_id
+        for marker in (
+            "creativecommons.org/publicdomain/zero/",
+            "creativecommons.org/licenses/by/4.0",
+            "creativecommons.org/licenses/by-sa/4.0",
+            "creativecommons.org/licenses/by-nd/4.0",
+        )
+    )
+
+
+async def search_audius(sess, q: str) -> list:
+    """Полные треки Audius: только скачиваемые, без платного/закрытого доступа и с открытой лицензией."""
+    j = await _json(
+        sess,
+        "https://api.audius.co/v1/tracks/search",
+        params={"query": q, "limit": 20, "only_downloadable": "true"},
+    )
+    toks = [w for w in re.findall(r"\\w+", q.lower()) if len(w) >= 3]
     res = []
-    for t in (j or {}).get("results", []):
-        # Отправляем только полные файлы, которые автор разрешил скачивать.
-        download_url = t.get("audiodownload")
-        if not t.get("audiodownload_allowed") or not download_url:
+    for t in (j or {}).get("data", []):
+        track_id = str(t.get("id") or "").strip()
+        license_id = str(t.get("license") or "")
+        if (
+            not track_id
+            or t.get("is_downloadable") is not True
+            or t.get("is_download_gated") is True
+            or t.get("is_stream_gated") is True
+            or not _audius_license_allowed(license_id)
+        ):
             continue
-        hay = (" ".join(str(t.get(k, "")) for k in ("name", "artist_name", "album_name"))
-               + " " + json.dumps(t.get("musicinfo") or {}, ensure_ascii=False)).lower()
+        user = t.get("user") or {}
+        artist = user.get("name") or user.get("handle") or "Audius artist"
+        title = t.get("title") or "Track"
+        hay = (f"{title} {artist} {t.get('genre') or ''} {t.get('tags') or ''}").lower()
         if toks and sum(w in hay for w in toks) < max(1, (len(toks) + 1) // 2):
-            continue  # не подсовываем случайный трек, когда просили конкретную песню
-        res.append({"title": t.get("name", "Track"), "artist": t.get("artist_name", ""), "preview": download_url,
-                    "link": t.get("shareurl", ""), "ext": "mp3", "cover": t.get("image", ""),
-                    "dur": int(t.get("duration") or 0), "full": True, "license": t.get("license_ccurl", "")})
+            continue
+        artwork = t.get("artwork") or {}
+        cover = (
+            artwork.get("480x480")
+            or artwork.get("150x150")
+            or artwork.get("1000x1000")
+            or t.get("cover_art")
+            or ""
+        )
+        permalink = t.get("permalink") or ""
+        link = permalink if permalink.startswith("http") else (
+            "https://audius.co/" + permalink.lstrip("/") if permalink else ""
+        )
+        res.append({
+            "title": title,
+            "artist": artist,
+            "preview": f"https://api.audius.co/v1/tracks/{quote(track_id, safe='')}/download",
+            "link": link,
+            "ext": "mp3",
+            "cover": cover,
+            "dur": int(t.get("duration") or 0),
+            "full": True,
+            "license": license_id,
+            "provider": "Audius",
+        })
     return res
 
 
 async def search_music(sess, q: str) -> list:
-    # Не подменяем полный трек 30-секундными превью Deezer/iTunes.
-    out = await search_jamendo(sess, q)
+    out = await search_audius(sess, q)
     for t in out:
         t["yt"] = "https://www.youtube.com/results?search_query=" + quote(f'{t["artist"]} {t["title"]}')
     return out
@@ -615,7 +663,7 @@ MUSIC: dict = {}  # key -> {"tracks": [...]} для кнопок ⏮ ⏭
 def music_caption(t: dict) -> str:
     if t.get("full"):
         lic = f"\nЛицензия: {t['license']}" if t.get("license") else ""
-        return f"🎧 Полный трек · Jamendo{lic}"
+        return f"🎧 Полный трек · Audius{lic}"
     return "🎧 Превью 30 с — полную версию слушайте по кнопке"
 
 
