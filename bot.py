@@ -599,31 +599,35 @@ def _audius_license_allowed(value: str) -> bool:
 
 
 async def search_audius(sess, q: str) -> list:
-    """Полные треки Audius: только скачиваемые, без платного/закрытого доступа и с открытой лицензией."""
+    """Ищем по каталогу Audius; отправляем только доступные для скачивания треки с открытой лицензией."""
+    # Не передаём only_downloadable: серверный фильтр может отличаться между версиями API.
+    # Проверяем доступность и лицензию локально, чтобы не терять результаты поиска.
     j = await _json(
         sess,
         "https://api.audius.co/v1/tracks/search",
-        params={"query": q, "limit": 20, "only_downloadable": "true"},
+        params={"query": q, "limit": 30},
     )
-    toks = [w for w in re.findall(r"\w+", q.lower()) if len(w) >= 3]
+    if not isinstance(j, dict) or not isinstance(j.get("data"), list):
+        log.warning("Audius search failed or returned an unexpected response for query %r", q[:100])
+        return []
+    items = j["data"]
     res = []
-    for t in (j or {}).get("data", []):
+    rejected_download = rejected_gated = rejected_license = 0
+    for t in items:
         track_id = str(t.get("id") or "").strip()
         license_id = str(t.get("license") or "")
-        if (
-            not track_id
-            or t.get("is_downloadable") is not True
-            or t.get("is_download_gated") is True
-            or t.get("is_stream_gated") is True
-            or not _audius_license_allowed(license_id)
-        ):
+        if not track_id or t.get("is_downloadable") is not True:
+            rejected_download += 1
+            continue
+        if t.get("is_download_gated") is True or t.get("is_stream_gated") is True:
+            rejected_gated += 1
+            continue
+        if not _audius_license_allowed(license_id):
+            rejected_license += 1
             continue
         user = t.get("user") or {}
         artist = user.get("name") or user.get("handle") or "Audius artist"
         title = t.get("title") or "Track"
-        hay = (f"{title} {artist} {t.get('genre') or ''} {t.get('tags') or ''}").lower()
-        if toks and sum(w in hay for w in toks) < max(1, (len(toks) + 1) // 2):
-            continue
         artwork = t.get("artwork") or {}
         cover = (
             artwork.get("480x480")
@@ -648,6 +652,10 @@ async def search_audius(sess, q: str) -> list:
             "license": license_id,
             "provider": "Audius",
         })
+    log.info(
+        "Audius search %r: received=%d accepted=%d rejected_download=%d rejected_gated=%d rejected_license=%d",
+        q[:80], len(items), len(res), rejected_download, rejected_gated, rejected_license,
+    )
     return res
 
 
