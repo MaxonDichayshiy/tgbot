@@ -60,6 +60,8 @@ struct ChatView: View {
 
     private let apiBase = "https://tgbot-naew.onrender.com"
     private let accent = SlopTheme.accent
+    private var appVersion: String { Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.9.0" }
+    private var appBuild: String { Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "—" }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -183,6 +185,9 @@ struct ChatView: View {
                     Button { showCreatorInfo = true } label: {
                         Label("О создателе", systemImage: "person.crop.circle")
                     }
+                    Divider()
+                    Text("Слопчик · версия \\(appVersion) (сборка \\(appBuild))")
+                        .font(.caption2)
                     Menu {
                         Button { themeRaw = SlopThemeMode.light.rawValue } label: {
                             Label("Светлая", systemImage: themeRaw == "light" ? "checkmark.circle.fill" : "sun.max")
