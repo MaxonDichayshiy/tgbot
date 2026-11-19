@@ -2,6 +2,7 @@ import SwiftUI
 
 struct LoginView: View {
     let onLogin: (String, String, String) -> Void
+    @Environment(\.colorScheme) private var colorScheme
     @State private var code = ""
     @State private var isLoading = false
     @State private var errorMessage: String?
@@ -20,8 +21,13 @@ struct LoginView: View {
                     AnimatedMascotView(name: "SlopchikHappy").frame(width: 64, height: 64)
                 }
                 VStack(spacing: 8) {
-                    Text("Слопчик").font(.custom("AvenirNext-Heavy", size: 35)).tracking(-1)
-                    Text("Твой личный помощник").font(.custom("AvenirNext-Medium", size: 15)).foregroundStyle(.secondary)
+                    Image(colorScheme == .dark ? "SlopchikLogoDark" : "SlopchikLogoLight")
+                        .resizable()
+                        .scaledToFit()
+                        .frame(maxWidth: 246)
+                    Text("Твой личный помощник")
+                        .font(.custom("AvenirNext-Medium", size: 15))
+                        .foregroundStyle(.secondary)
                 }
                 VStack(alignment: .leading, spacing: 10) {
                     Text("Вход через Telegram").font(.system(size: 14, weight: .semibold)).foregroundStyle(.secondary)

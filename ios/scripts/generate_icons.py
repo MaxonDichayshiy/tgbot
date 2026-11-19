@@ -141,6 +141,11 @@ def write_brand_icon(name, color_folder, app_icon=False):
 write_brand_icon("AppIcon", "lime", app_icon=True)
 write_brand_icon("SlopchikClassic", "lime", app_icon=False)
 
+# Official splash and both wordmark colorways.
+write_asset("SlopchikSplash", Image.open(ROOT.parent / "Brand book" / "brand" / "splash.png").convert("RGB"))
+write_asset("SlopchikLogoDark", Image.open(ROOT.parent / "Brand book" / "brand" / "logo-dark.png").convert("RGB"))
+write_asset("SlopchikLogoLight", Image.open(ROOT.parent / "Brand book" / "brand" / "logo-light.png").convert("RGB"))
+
 # All colorways from the brand book are available as alternate icons.
 for app_name, folder in [
     ("SlopchikLimeInvert", "lime-invert"),
