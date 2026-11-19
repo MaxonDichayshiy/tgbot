@@ -21,7 +21,7 @@ jobs:
         shell: pwsh
         run: |
           if ([string]::IsNullOrWhiteSpace($env:TAURI_SIGNING_PRIVATE_KEY)) {
-            throw "Add TAURI_SIGNING_PRIVATE_KEY and TAURI_SIGNING_PRIVATE_KEY_PASSWORD to GitHub Actions secrets before publishing."
+            throw "Add TAURI_SIGNING_PRIVATE_KEY to GitHub Actions secrets before publishing. TAURI_SIGNING_PRIVATE_KEY_PASSWORD is only needed when the key is password-protected."
           }
 
       - name: Install Rust
