@@ -106,11 +106,11 @@ struct ChatView: View {
                     }
                 }
                 .font(.footnote).padding(.horizontal, 14).padding(.vertical, 8)
-                .background(Color(uiColor: .secondarySystemGroupedBackground))
+                .background(SlopTheme.surface)
             }
             composer
         }
-        .background(Color(uiColor: .systemGroupedBackground))
+        .background(SlopTheme.canvas)
         .sheet(isPresented: $showIconSettings) { IconSettingsView() }
         .sheet(isPresented: $showPromptSettings) { promptSheet }
         .sheet(isPresented: $showLegalInfo) { LegalInfoView() }
@@ -285,7 +285,7 @@ struct ChatView: View {
                 Button(action: toggleRecording) {
                     Image(systemName: isRecording ? "stop.fill" : "mic.fill")
                         .font(.system(size: 17, weight: .semibold))
-                        .frame(width: 46, height: 46).foregroundStyle(.white)
+                        .frame(width: 46, height: 46).foregroundStyle(isRecording ? Color.white : SlopTheme.accentForeground)
                         .background(isRecording ? Color.red : accent).clipShape(Circle())
                 }
                 .disabled(isSending)
@@ -296,7 +296,7 @@ struct ChatView: View {
                         if isSending { ProgressView().tint(.white) }
                         else { Image(systemName: "arrow.up").font(.system(size: 17, weight: .bold)) }
                     }
-                    .frame(width: 46, height: 46).foregroundStyle(.white)
+                    .frame(width: 46, height: 46).foregroundStyle(isRecording ? Color.white : SlopTheme.accentForeground)
                     .background(accent).clipShape(Circle())
                 }
                 .disabled(isSending)
@@ -316,7 +316,7 @@ struct ChatView: View {
                 if !message.text.isEmpty {
                     let rendered = (try? AttributedString(markdown: message.text, options: .init(interpretedSyntax: .full))) ?? AttributedString(message.text)
                     Text(rendered).font(.system(size: 16))
-                        .foregroundStyle(isUser ? Color.white : Color.primary)
+                        .foregroundStyle(isUser ? SlopTheme.accentForeground : Color.primary)
                         .lineSpacing(4)
                         .textSelection(.enabled)
                 }
@@ -342,7 +342,7 @@ struct ChatView: View {
                     ShareLink(item: url) {
                         Label("Поделиться", systemImage: "square.and.arrow.up")
                             .font(.caption.weight(.medium))
-                            .foregroundStyle(isUser ? Color.white.opacity(0.9) : accent)
+                            .foregroundStyle(isUser ? SlopTheme.accentForeground.opacity(0.8) : accent)
                     }
                 }
             }
@@ -352,18 +352,18 @@ struct ChatView: View {
             VStack(alignment: .leading, spacing: 6) {
                 Link(destination: url) {
                     Label(item.title.isEmpty ? "Открыть ссылку" : item.title, systemImage: "play.rectangle")
-                        .font(.subheadline).foregroundStyle(isUser ? .white : accent)
+                        .font(.subheadline).foregroundStyle(isUser ? SlopTheme.accentForeground : accent)
                 }
                 ShareLink(item: url) {
                     Label("Поделиться", systemImage: "square.and.arrow.up")
                         .font(.caption.weight(.medium))
-                        .foregroundStyle(isUser ? Color.white.opacity(0.9) : accent)
+                        .foregroundStyle(isUser ? SlopTheme.accentForeground.opacity(0.8) : accent)
                 }
             }
         } else if item.type == "file", let url = temporaryFileURL(item) {
             ShareLink(item: url) {
                 Label("Сохранить \(item.name)", systemImage: "doc")
-                    .font(.subheadline).foregroundStyle(isUser ? .white : accent)
+                    .font(.subheadline).foregroundStyle(isUser ? SlopTheme.accentForeground : accent)
             }
         }
     }
@@ -847,14 +847,14 @@ struct ChatView: View {
                 Text("Задай Слопчику постоянные инструкции: стиль общения, предпочтения или правила ответов.")
                     .font(.subheadline).foregroundStyle(.secondary)
                 TextEditor(text: $promptText)
-                    .padding(8).background(Color.white)
+                    .padding(8).background(SlopTheme.surface)
                     .clipShape(RoundedRectangle(cornerRadius: 14))
                 Button("Сохранить инструкцию") { savePrompt() }
                     .fontWeight(.semibold).frame(maxWidth: .infinity).padding()
-                    .foregroundStyle(.white).background(accent)
+                    .foregroundStyle(SlopTheme.accentForeground).background(accent)
                     .clipShape(RoundedRectangle(cornerRadius: 14))
             }
-            .padding().background(Color(red: 0.97, green: 0.96, blue: 0.94))
+            .padding().background(SlopTheme.canvas)
             .navigationTitle("Инструкция").navigationBarTitleDisplayMode(.inline)
             .onAppear(perform: loadPrompt)
         }
