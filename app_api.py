@@ -5,8 +5,8 @@
 «На экран Домой» (без Mac, без аккаунта разработчика, бесплатно).
 
 Вход:
-  • код доступа — переменная APP_CODES в Render: «Имя:код,Имя2:код2» (или просто «код1,код2»);
-  • Mini App в Telegram — личность подтверждается подписью Telegram (initData), память общая с чатом бота.
+  • Telegram Mini App — личность подтверждается подписью Telegram (initData);
+  • iOS — бот выдаёт одноразовый код командой /app, привязанный к реальному Telegram ID.
 """
 import asyncio
 import base64
@@ -97,10 +97,6 @@ def verify_init_data(c, init: str, max_age: int = 86400):
         return json.loads(data["user"])
     except Exception:
         return None
-
-
-def code_uid(code: str) -> int:
-    return 10**12 + int(hashlib.sha256(code.encode()).hexdigest()[:8], 16)  # отдельно от настоящих id Telegram
 
 
 _hits: dict = {}
