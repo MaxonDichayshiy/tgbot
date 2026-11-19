@@ -433,7 +433,7 @@ def mount(app: web.Application, c):
     async def desktop_asset(request):
         name = request.match_info["name"]
         path = (DESKTOP_DIR / "assets" / name).resolve()
-        if not re.fullmatch(r"icon-(lime|lime-invert|purple|orange|pink|blue|teal|rainbow)\\.svg", name):
+        if not re.fullmatch(r"icon-(lime|lime-invert|purple|orange|pink|blue|teal|rainbow)\.svg", name):
             raise web.HTTPNotFound()
         if (DESKTOP_DIR / "assets").resolve() not in path.parents or not path.is_file():
             raise web.HTTPNotFound()
@@ -453,6 +453,7 @@ def mount(app: web.Application, c):
     app.router.add_post("/api/prompt", prompt)
     app.router.add_get("/desktop", lambda r: web.HTTPFound("/desktop/"))
     app.router.add_get("/desktop/", desktop_index)
+    app.router.add_get("/desktop/assets/{name}", desktop_asset)
     app.router.add_get("/app", lambda r: web.HTTPFound("/app/"))
     app.router.add_get("/app/", index)
     app.router.add_get("/app/sw.js", sw)
