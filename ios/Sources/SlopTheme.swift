@@ -17,20 +17,20 @@ enum SlopThemeMode: String, CaseIterable {
 
 enum SlopTheme {
     // Brand book: lime #B6F23A, ink #111111, light canvas #F4F4F2.
-    static let accent = Color(red: 182 / 255, green: 242 / 255, blue: 58 / 255)
-    static let ink = Color(red: 17 / 255, green: 17 / 255, blue: 17 / 255)
-    static let lightCanvas = Color(red: 244 / 255, green: 244 / 255, blue: 242 / 255)
+    static let accent = Color(red: 182.0 / 255.0, green: 242.0 / 255.0, blue: 58.0 / 255.0)
+    static let ink = Color(red: 17.0 / 255.0, green: 17.0 / 255.0, blue: 17.0 / 255.0)
+    static let lightCanvas = Color(red: 244.0 / 255.0, green: 244.0 / 255.0, blue: 242.0 / 255.0)
     static let accentForeground = ink
 
     static let canvas = Color(uiColor: UIColor { traits in
         traits.userInterfaceStyle == .dark
-            ? UIColor(red: 17 / 255, green: 17 / 255, blue: 17 / 255, alpha: 1)
-            : UIColor(red: 244 / 255, green: 244 / 255, blue: 242 / 255, alpha: 1)
+            ? UIColor(red: 17.0 / 255.0, green: 17.0 / 255.0, blue: 17.0 / 255.0, alpha: 1)
+            : UIColor(red: 244.0 / 255.0, green: 244.0 / 255.0, blue: 242.0 / 255.0, alpha: 1)
     })
 
     static let surface = Color(uiColor: UIColor { traits in
         traits.userInterfaceStyle == .dark
-            ? UIColor(red: 28 / 255, green: 28 / 255, blue: 28 / 255, alpha: 1)
+            ? UIColor(red: 28.0 / 255.0, green: 28.0 / 255.0, blue: 28.0 / 255.0, alpha: 1)
             : UIColor.white
     })
 
