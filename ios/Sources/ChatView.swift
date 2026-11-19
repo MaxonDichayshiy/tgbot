@@ -30,6 +30,7 @@ struct ChatView: View {
     let onLogout: () -> Void
 
     @State private var messages: [ChatMessage] = []
+    @State private var greetingIndex = 0
     @State private var draft = ""
     @State private var isSending = false
     @State private var isLoading = true
@@ -111,7 +112,7 @@ struct ChatView: View {
             }
             composer
         }
-        .background(SlopTheme.canvas)
+        .background(SlopTheme.canvas.ignoresSafeArea())
         .sheet(isPresented: $showIconSettings) { IconSettingsView() }
         .sheet(isPresented: $showPromptSettings) { promptSheet }
         .sheet(isPresented: $showLegalInfo) { LegalInfoView() }
@@ -143,6 +144,11 @@ struct ChatView: View {
             }
         }
         .onAppear(perform: loadLocalHistory)
+        .onReceive(Timer.publish(every: 5, on: .main, in: .common).autoconnect()) { _ in
+            withAnimation(.spring(response: 0.48, dampingFraction: 0.84)) {
+                greetingIndex = (greetingIndex + 1) % 3
+            }
+        }
         .onReceive(Timer.publish(every: 0.25, on: .main, in: .common).autoconnect()) { _ in
             updatePlaybackProgress()
         }
@@ -155,110 +161,156 @@ struct ChatView: View {
     }
 
     private var welcome: some View {
-        VStack(spacing: 12) {
-            Image(systemName: "bubble.left.and.bubble.right")
-                .font(.system(size: 36)).foregroundStyle(accent)
-            Text("Слопчик на связи").font(.headline)
-            Text("Можно общаться текстом, отправлять фото и документы или записать голосовое сообщение.")
-                .font(.subheadline).foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-            Text("Попробуй: «Нарисуй…», «Погода в…», «Найди в интернете…»")
-                .font(.caption).foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
+        VStack(spacing: 14) {
+            AnimatedMascotView(name: mascotAnimationName)
+                .frame(width: 104, height: 104)
+                .padding(8)
+                .background(accent.opacity(0.13), in: Circle())
+                .overlay(Circle().stroke(accent.opacity(0.18), lineWidth: 1))
+            VStack(spacing: 7) {
+                Text("Слопчик на связи")
+                    .font(.custom("AvenirNext-Heavy", size: 21))
+                    .foregroundStyle(.primary)
+                Text("Можно общаться текстом, отправлять фото и документы или записать голосовое сообщение.")
+                    .font(.system(size: 14))
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .lineSpacing(3)
+                Text("Попробуй: «Нарисуй…», «Погода в…», «Найди в интернете…»")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.top, 3)
+            }
         }
-        .padding(.top, 64).padding(.horizontal, 24)
+        .padding(.horizontal, 22)
+        .padding(.vertical, 26)
+        .frame(maxWidth: .infinity)
+        .background(SlopTheme.surface, in: RoundedRectangle(cornerRadius: 26, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 26, style: .continuous).stroke(SlopTheme.subtleBorder, lineWidth: 0.8))
+        .padding(.horizontal, 8)
+        .padding(.top, 44)
+    }
+
+    private var greetingPhrases: [String] {
+        let hour = Calendar.current.component(.hour, from: Date())
+        switch hour {
+        case 5..<12:
+            return ["Доброе утро", "Пусть утро будет лёгким", "Время хороших идей"]
+        case 12..<18:
+            return ["Добрый день", "Чем займёмся сегодня?", "Пусть всё получится"]
+        case 18..<22:
+            return ["Добрый вечер", "Время немного выдохнуть", "Поболтаем немного?"]
+        default:
+            return ["Доброй ночи", "Пусть ночь будет спокойной", "Пора немного отдохнуть"]
+        }
+    }
+
+    private var currentGreeting: String {
+        greetingPhrases[greetingIndex % greetingPhrases.count]
+    }
+
+    private var mascotAnimationName: String {
+        let hour = Calendar.current.component(.hour, from: Date())
+        switch hour {
+        case 5..<12: return "SlopchikHappy"
+        case 12..<18: return "SlopchikWink"
+        case 18..<22: return "SlopchikLove"
+        default: return "SlopchikSleepy"
+        }
     }
 
     private var header: some View {
         HStack(spacing: 12) {
             Menu {
-                    Text("Вы вошли как \(userName)")
-                    Divider()
-                    Button { showPromptSettings = true } label: {
-                        Label("Персональная инструкция", systemImage: "slider.horizontal.3")
-                    }
-                    Button { showIconSettings = true } label: {
-                        Label("Иконка приложения", systemImage: "app")
-                    }
-                    Button { showLegalInfo = true } label: {
-                        Label("Правовой уголок", systemImage: "doc.text")
-                    }
-                    Button { showCreatorInfo = true } label: {
-                        Label("О создателе", systemImage: "person.crop.circle")
-                    }
-                    Divider()
-                    Text("Слопчик • версия \\(appVersion) • сборка \\(appBuild)")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
-                    Menu {
-                        Button { themeRaw = SlopThemeMode.light.rawValue } label: {
-                            Label("Светлая", systemImage: themeRaw == "light" ? "checkmark.circle.fill" : "sun.max")
-                        }
-                        Button { themeRaw = SlopThemeMode.dark.rawValue } label: {
-                            Label("Тёмная", systemImage: themeRaw == "dark" ? "checkmark.circle.fill" : "moon")
-                        }
-                        Button { themeRaw = SlopThemeMode.system.rawValue } label: {
-                            Label("Как в системе", systemImage: themeRaw == "system" ? "checkmark.circle.fill" : "iphone")
-                        }
-                    } label: {
-                        Label("Тема оформления", systemImage: "circle.lefthalf.filled")
-                    }
-                    Divider()
-                    Button("Выйти", role: .destructive, action: onLogout)
-                } label: {
-                    Image(systemName: "line.3.horizontal")
-                        .font(.system(size: 16, weight: .semibold))
-                        .frame(width: 40, height: 40)
-                        .background(.thinMaterial, in: Circle())
-                        .overlay(Circle().stroke(Color.primary.opacity(0.06), lineWidth: 0.8))
+                Text("Вы вошли как \(userName)")
+                Divider()
+                Button { showPromptSettings = true } label: {
+                    Label("Персональная инструкция", systemImage: "slider.horizontal.3")
                 }
-                .accessibilityLabel("Меню")
+                Button { showIconSettings = true } label: {
+                    Label("Иконка приложения", systemImage: "app")
+                }
+                Button { showLegalInfo = true } label: {
+                    Label("Правовой уголок", systemImage: "doc.text")
+                }
+                Button { showCreatorInfo = true } label: {
+                    Label("О создателе", systemImage: "person.crop.circle")
+                }
+                Divider()
+                Text("Слопчик • версия \(appVersion) • сборка \(appBuild)")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+                Menu {
+                    Button { themeRaw = SlopThemeMode.light.rawValue } label: {
+                        Label("Светлая", systemImage: themeRaw == "light" ? "checkmark.circle.fill" : "sun.max")
+                    }
+                    Button { themeRaw = SlopThemeMode.dark.rawValue } label: {
+                        Label("Тёмная", systemImage: themeRaw == "dark" ? "checkmark.circle.fill" : "moon")
+                    }
+                    Button { themeRaw = SlopThemeMode.system.rawValue } label: {
+                        Label("Как в системе", systemImage: themeRaw == "system" ? "checkmark.circle.fill" : "iphone")
+                    }
+                } label: {
+                    Label("Тема оформления", systemImage: "circle.lefthalf.filled")
+                }
+                Divider()
+                Button("Выйти", role: .destructive, action: onLogout)
+            } label: {
+                Image(systemName: "line.3.horizontal")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(.primary)
+                    .frame(width: 42, height: 42)
+                    .background(SlopTheme.controlSurface, in: Circle())
+                    .overlay(Circle().stroke(SlopTheme.subtleBorder, lineWidth: 0.8))
+                    .contentShape(Circle())
+            }
+            .accessibilityLabel("Меню")
             .buttonStyle(.plain)
 
-            Spacer(minLength: 8)
-
-            VStack(spacing: 1) {
-                Text("Слопчик")
-                    .font(.system(size: 18, weight: .bold, design: .rounded))
-                    .foregroundStyle(.primary)
-                Text("AI-помощник")
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(.secondary)
+            HStack(spacing: 10) {
+                AnimatedMascotView(name: mascotAnimationName)
+                    .frame(width: 44, height: 44)
+                    .background(accent.opacity(0.15), in: Circle())
+                    .overlay(Circle().stroke(accent.opacity(0.22), lineWidth: 1))
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Слопчик")
+                        .font(.custom("AvenirNext-Heavy", size: 21))
+                        .tracking(-0.65)
+                        .foregroundStyle(.primary)
+                    Text(currentGreeting)
+                        .font(.custom("AvenirNext-Medium", size: 11))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .id(currentGreeting)
+                        .transition(.asymmetric(
+                            insertion: .move(edge: .top).combined(with: .opacity),
+                            removal: .move(edge: .bottom).combined(with: .opacity)
+                        ))
+                        .animation(.spring(response: 0.48, dampingFraction: 0.84), value: currentGreeting)
+                }
+                .accessibilityElement(children: .combine)
             }
-            .accessibilityElement(children: .combine)
 
-            Spacer(minLength: 8)
+            Spacer(minLength: 0)
 
             Button(action: resetChat) {
                 Image(systemName: "square.and.pencil")
-                    .font(.system(size: 17, weight: .medium))
-                    .frame(width: 40, height: 40)
-                    .background(.thinMaterial, in: Circle())
-                    .overlay(Circle().stroke(Color.primary.opacity(0.06), lineWidth: 0.8))
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(.primary)
+                    .frame(width: 42, height: 42)
+                    .background(SlopTheme.controlSurface, in: Circle())
+                    .overlay(Circle().stroke(SlopTheme.subtleBorder, lineWidth: 0.8))
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Новый диалог")
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 8)
-        .background(alignment: .bottom) {
-            Rectangle()
-                .fill(.regularMaterial)
-                .frame(height: 42)
-                .mask {
-                    LinearGradient(
-                        stops: [
-                            .init(color: .black, location: 0),
-                            .init(color: .black, location: 0.22),
-                            .init(color: .clear, location: 1)
-                        ],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
-                }
-                .offset(y: 42)
-                .allowsHitTesting(false)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 9)
+        .background(SlopTheme.headerSurface)
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(SlopTheme.subtleBorder).frame(height: 0.8)
         }
         .zIndex(1)
     }
@@ -287,8 +339,8 @@ struct ChatView: View {
                 .focused($isComposerFocused)
                 .submitLabel(.send)
                 .lineLimit(1...5).padding(.horizontal, 15).padding(.vertical, 12)
-                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
-                .slopGlass(cornerRadius: 22)
+                .background(SlopTheme.inputSurface, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).stroke(SlopTheme.subtleBorder, lineWidth: 0.8))
                 .disabled(isSending || isRecording)
             if isRecording {
                 Button(action: cancelRecording) {
@@ -332,8 +384,8 @@ struct ChatView: View {
             }
             .padding(.horizontal, 10).padding(.vertical, 10)
         }
-        .background(.ultraThinMaterial)
-        .slopGlass(cornerRadius: 0)
+        .background(SlopTheme.composerSurface)
+        .overlay(alignment: .top) { Rectangle().fill(SlopTheme.subtleBorder).frame(height: 0.8) }
     }
 
     private func messageBubble(_ message: ChatMessage) -> some View {
@@ -352,9 +404,10 @@ struct ChatView: View {
                     attachmentView(attachment, isUser: isUser)
                 }
             }
-            .padding(.horizontal, isUser ? 15 : 0).padding(.vertical, isUser ? 11 : 3)
-            .background(isUser ? accent : Color.clear)
-            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .padding(.horizontal, 15).padding(.vertical, 11)
+            .background(isUser ? accent : SlopTheme.assistantBubble)
+            .clipShape(RoundedRectangle(cornerRadius: 19, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 19, style: .continuous).stroke(isUser ? Color.clear : SlopTheme.subtleBorder, lineWidth: 0.8))
             if !isUser { Spacer(minLength: 42) }
         }
         .frame(maxWidth: .infinity)

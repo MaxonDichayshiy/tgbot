@@ -9,10 +9,14 @@ private struct AppIconOption: Identifiable {
     let alternateName: String?
 
     static let all: [AppIconOption] = [
-        .init(id: "classic", title: "Классика", subtitle: "Фирменный Слопчик", assetName: "SlopchikClassic", alternateName: nil),
-        .init(id: "car", title: "Четырка", subtitle: "Слопчик и его легенда", assetName: "SlopchikCar", alternateName: "SlopchikCar"),
-        .init(id: "yard", title: "Двор", subtitle: "Своя атмосфера", assetName: "SlopchikYard", alternateName: "SlopchikYard"),
-        .init(id: "night", title: "Ночной", subtitle: "Тёмная версия", assetName: "SlopchikNight", alternateName: "SlopchikNight")
+        .init(id: "classic", title: "Фирменный", subtitle: "Главный лаймовый знак", assetName: "SlopchikClassic", alternateName: nil),
+        .init(id: "lime-invert", title: "Инверсия", subtitle: "Лайм на чёрном", assetName: "SlopchikLimeInvert", alternateName: "SlopchikLimeInvert"),
+        .init(id: "purple", title: "Фиолетовый", subtitle: "Яркий характер", assetName: "SlopchikPurple", alternateName: "SlopchikPurple"),
+        .init(id: "orange", title: "Оранжевый", subtitle: "Тёплый акцент", assetName: "SlopchikOrange", alternateName: "SlopchikOrange"),
+        .init(id: "pink", title: "Розовый", subtitle: "Мягкий контраст", assetName: "SlopchikPink", alternateName: "SlopchikPink"),
+        .init(id: "blue", title: "Синий", subtitle: "Холодный акцент", assetName: "SlopchikBlue", alternateName: "SlopchikBlue"),
+        .init(id: "teal", title: "Бирюзовый", subtitle: "Спокойный оттенок", assetName: "SlopchikTeal", alternateName: "SlopchikTeal"),
+        .init(id: "rainbow", title: "Радужный", subtitle: "Все цвета сразу", assetName: "SlopchikRainbow", alternateName: "SlopchikRainbow")
     ]
 }
 

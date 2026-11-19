@@ -130,18 +130,26 @@ def write_asset(name, image, app_icon=False):
     (folder / "Contents.json").write_text(json.dumps(contents, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 ASSETS.mkdir(parents=True, exist_ok=True)
-# The primary icon is compiled as the app's main icon.
-write_asset("AppIcon", make_icon("classic"), app_icon=True)
+BRAND_ICONS = ROOT.parent / "Brand book" / "icons"
 
-# Keep preview images in ordinary image sets, and provide separate app-icon
-# sets for iOS alternate-icon switching.
-for kind, app_name in [
-    ("classic", "SlopchikClassic"),
-    ("car", "SlopchikCar"),
-    ("yard", "SlopchikYard"),
-    ("night", "SlopchikNight"),
+def write_brand_icon(name, color_folder, app_icon=False):
+    source = BRAND_ICONS / color_folder / "square-1024.png"
+    image = Image.open(source).convert("RGB")
+    write_asset(name, image, app_icon=app_icon)
+
+# Official lime icon is the primary app icon.
+write_brand_icon("AppIcon", "lime", app_icon=True)
+write_brand_icon("SlopchikClassic", "lime", app_icon=False)
+
+# All colorways from the brand book are available as alternate icons.
+for app_name, folder in [
+    ("SlopchikLimeInvert", "lime-invert"),
+    ("SlopchikPurple", "purple"),
+    ("SlopchikOrange", "orange"),
+    ("SlopchikPink", "pink"),
+    ("SlopchikBlue", "blue"),
+    ("SlopchikTeal", "teal"),
+    ("SlopchikRainbow", "rainbow"),
 ]:
-    image = make_icon(kind)
-    write_asset(app_name, image, app_icon=False)
-    if app_name != "SlopchikClassic":
-        write_asset(app_name, image, app_icon=True)
+    write_brand_icon(app_name, folder, app_icon=False)
+    write_brand_icon(app_name, folder, app_icon=True)

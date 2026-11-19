@@ -17,13 +17,11 @@ struct LoginView: View {
                     RoundedRectangle(cornerRadius: 28).fill(.ultraThinMaterial)
                         .frame(width: 88, height: 88)
                         .shadow(color: .black.opacity(0.06), radius: 16, y: 6)
-                    Image(systemName: "bubble.left.and.bubble.right.fill")
-                        .font(.system(size: 34, weight: .semibold))
-                        .foregroundStyle(accent)
+                    AnimatedMascotView(name: "SlopchikHappy").frame(width: 64, height: 64)
                 }
                 VStack(spacing: 8) {
-                    Text("Слопчик").font(.system(size: 34, weight: .bold, design: .rounded))
-                    Text("Твой личный помощник").font(.system(size: 16)).foregroundStyle(.secondary)
+                    Text("Слопчик").font(.custom("AvenirNext-Heavy", size: 35)).tracking(-1)
+                    Text("Твой личный помощник").font(.custom("AvenirNext-Medium", size: 15)).foregroundStyle(.secondary)
                 }
                 VStack(alignment: .leading, spacing: 10) {
                     Text("Вход через Telegram").font(.system(size: 14, weight: .semibold)).foregroundStyle(.secondary)
@@ -33,9 +31,8 @@ struct LoginView: View {
                         .textContentType(.oneTimeCode)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
-                        .padding(16).background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                        .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.black.opacity(0.06)))
+                        .padding(16).background(SlopTheme.inputSurface, in: RoundedRectangle(cornerRadius: 17, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: 17, style: .continuous).stroke(SlopTheme.subtleBorder, lineWidth: 0.8))
                 }
                 if let errorMessage {
                     Text(errorMessage).font(.system(size: 13)).foregroundStyle(.red)

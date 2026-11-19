@@ -16,25 +16,50 @@ enum SlopThemeMode: String, CaseIterable {
 }
 
 enum SlopTheme {
-    // Brand book: lime #B6F23A, ink #111111, light canvas #F4F4F2.
+    // Brand book: lime #B6F23A, ink #111111, warm paper #F4F2EC.
     static let accent = Color(red: 182.0 / 255.0, green: 242.0 / 255.0, blue: 58.0 / 255.0)
     static let ink = Color(red: 17.0 / 255.0, green: 17.0 / 255.0, blue: 17.0 / 255.0)
-    static let lightCanvas = Color(red: 244.0 / 255.0, green: 244.0 / 255.0, blue: 242.0 / 255.0)
     static let accentForeground = ink
+    static let lightCanvas = Color(red: 244.0 / 255.0, green: 242.0 / 255.0, blue: 236.0 / 255.0)
 
-    static let canvas = Color(uiColor: UIColor { traits in
-        traits.userInterfaceStyle == .dark
-            ? UIColor(red: 17.0 / 255.0, green: 17.0 / 255.0, blue: 17.0 / 255.0, alpha: 1)
-            : UIColor(red: 244.0 / 255.0, green: 244.0 / 255.0, blue: 242.0 / 255.0, alpha: 1)
-    })
+    private static func adaptive(light: UIColor, dark: UIColor) -> Color {
+        Color(uiColor: UIColor { traits in
+            traits.userInterfaceStyle == .dark ? dark : light
+        })
+    }
 
-    static let surface = Color(uiColor: UIColor { traits in
-        traits.userInterfaceStyle == .dark
-            ? UIColor(red: 28.0 / 255.0, green: 28.0 / 255.0, blue: 28.0 / 255.0, alpha: 1)
-            : UIColor.white
-    })
-
-    static let subtleBorder = Color.primary.opacity(0.09)
+    static let canvas = adaptive(
+        light: UIColor(red: 0.957, green: 0.949, blue: 0.925, alpha: 1),
+        dark: UIColor(red: 0.067, green: 0.067, blue: 0.067, alpha: 1)
+    )
+    static let headerSurface = adaptive(
+        light: UIColor(red: 0.957, green: 0.949, blue: 0.925, alpha: 1),
+        dark: UIColor(red: 0.067, green: 0.067, blue: 0.067, alpha: 1)
+    )
+    static let composerSurface = adaptive(
+        light: UIColor(red: 0.957, green: 0.949, blue: 0.925, alpha: 1),
+        dark: UIColor(red: 0.067, green: 0.067, blue: 0.067, alpha: 1)
+    )
+    static let surface = adaptive(
+        light: .white,
+        dark: UIColor(red: 0.110, green: 0.114, blue: 0.102, alpha: 1)
+    )
+    static let assistantBubble = adaptive(
+        light: .white,
+        dark: UIColor(red: 0.114, green: 0.122, blue: 0.106, alpha: 1)
+    )
+    static let inputSurface = adaptive(
+        light: .white,
+        dark: UIColor(red: 0.122, green: 0.129, blue: 0.114, alpha: 1)
+    )
+    static let controlSurface = adaptive(
+        light: UIColor(red: 0.922, green: 0.914, blue: 0.882, alpha: 1),
+        dark: UIColor(red: 0.137, green: 0.145, blue: 0.125, alpha: 1)
+    )
+    static let subtleBorder = adaptive(
+        light: UIColor.black.withAlphaComponent(0.075),
+        dark: UIColor.white.withAlphaComponent(0.085)
+    )
 }
 
 private struct SlopGlassModifier: ViewModifier {
