@@ -47,7 +47,7 @@ struct LoginView: View {
                         Text(isLoading ? "Проверяем…" : "Продолжить").fontWeight(.semibold)
                     }
                     .frame(maxWidth: .infinity).padding(.vertical, 17)
-                    .foregroundStyle(.white)
+                    .foregroundStyle(SlopTheme.accentForeground)
                     .background(accent)
                     .clipShape(RoundedRectangle(cornerRadius: 16))
                 }
