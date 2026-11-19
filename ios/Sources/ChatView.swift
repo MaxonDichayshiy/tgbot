@@ -340,6 +340,7 @@ struct ChatView: View {
             TextField("Сообщение…", text: $draft, axis: .vertical)
                 .focused($isComposerFocused)
                 .submitLabel(.send)
+                .onSubmit { sendMessage() }
                 .lineLimit(1...5).padding(.horizontal, 15).padding(.vertical, 12)
                 .background(SlopTheme.inputSurface, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).stroke(SlopTheme.subtleBorder, lineWidth: 0.8))
