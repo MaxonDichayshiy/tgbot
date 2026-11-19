@@ -764,7 +764,11 @@ struct ChatView: View {
                 DispatchQueue.main.async { failAudio("Источник не отдал аудио (HTTP " + code + ").") }
                 return
             }
-            let mime = http.mimeType ?? ""
+            let mime = (http.mimeType ?? "").lowercased()
+            guard mime.hasPrefix("audio/") || mime == "application/octet-stream" || mime == "binary/octet-stream" else {
+                DispatchQueue.main.async { failAudio("Источник вернул не аудиофайл (\(mime.isEmpty ? "неизвестный формат" : mime)).") }
+                return
+            }
             let ext = UTType(mimeType: mime)?.preferredFilenameExtension ?? (remoteURL.pathExtension.isEmpty ? "mp3" : remoteURL.pathExtension)
             let localURL = FileManager.default.temporaryDirectory.appendingPathComponent("slopchik-" + UUID().uuidString + "." + ext)
             do {
@@ -785,9 +789,8 @@ struct ChatView: View {
         let newPlayer = AVPlayer(playerItem: item)
         newPlayer.volume = Float(playbackVolume)
         player = newPlayer
-        newPlayer.play()
-        isAudioLoading = false
-        isAudioPlaying = true
+        // Запускаем только после фактической готовности AVPlayerItem.
+        // Состояние проверяется в updatePlaybackProgress(), который уже работает по таймеру.
     }
 
     private func failAudio(_ message: String) {
@@ -809,9 +812,16 @@ struct ChatView: View {
         let duration = player.currentItem?.duration.seconds ?? 0
         if current.isFinite && !isSeekingAudio { playbackTime = max(0, current) }
         if duration.isFinite && duration > 0 { playbackDuration = duration }
-        if let item = player.currentItem, item.status == .failed {
-            failAudio("Формат аудио не удалось воспроизвести: " + (item.error?.localizedDescription ?? "неизвестная ошибка"))
-            return
+        if let item = player.currentItem {
+            if item.status == .failed {
+                failAudio("Формат аудио не удалось воспроизвести: " + (item.error?.localizedDescription ?? "неизвестная ошибка"))
+                return
+            }
+            if item.status == .readyToPlay && isAudioLoading {
+                player.play()
+                isAudioLoading = false
+                isAudioPlaying = true
+            }
         }
         if player.timeControlStatus == .paused && isAudioPlaying {
             isAudioPlaying = false
