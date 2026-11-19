@@ -147,9 +147,8 @@ struct ChatView: View {
     }
 
     private var header: some View {
-        ZStack {
-            HStack {
-                Menu {
+        HStack(spacing: 12) {
+            Menu {
                     Text("Вы вошли как \(userName)")
                     Divider()
                     Button { showPromptSettings = true } label: {
@@ -181,35 +180,41 @@ struct ChatView: View {
                     Button("Выйти", role: .destructive, action: onLogout)
                 } label: {
                     Image(systemName: "line.3.horizontal")
-                        .font(.system(size: 19, weight: .medium))
-                        .frame(width: 42, height: 42)
-                        .contentShape(Rectangle())
+                        .font(.system(size: 16, weight: .semibold))
+                        .frame(width: 40, height: 40)
+                        .background(.thinMaterial, in: Circle())
+                        .overlay(Circle().stroke(Color.primary.opacity(0.06), lineWidth: 0.8))
                 }
                 .accessibilityLabel("Меню")
+            .buttonStyle(.plain)
 
-                Spacer()
+            Spacer(minLength: 8)
 
-                Button(action: resetChat) {
-                    Image(systemName: "square.and.pencil")
-                        .font(.system(size: 19, weight: .medium))
-                        .frame(width: 42, height: 42)
-                        .contentShape(Rectangle())
-                }
-                .accessibilityLabel("Новый диалог")
+            VStack(spacing: 1) {
+                Text("Слопчик")
+                    .font(.system(size: 18, weight: .bold, design: .rounded))
+                    .foregroundStyle(.primary)
+                Text("AI-помощник")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(.secondary)
             }
-            Text("Слопчик")
-                .font(.system(size: 17, weight: .semibold, design: .rounded))
-                .foregroundStyle(.primary)
-                .allowsHitTesting(false)
+            .accessibilityElement(children: .combine)
+
+            Spacer(minLength: 8)
+
+            Button(action: resetChat) {
+                Image(systemName: "square.and.pencil")
+                    .font(.system(size: 17, weight: .medium))
+                    .frame(width: 40, height: 40)
+                    .background(.thinMaterial, in: Circle())
+                    .overlay(Circle().stroke(Color.primary.opacity(0.06), lineWidth: 0.8))
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Новый диалог")
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 5)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
         .background(.regularMaterial)
-        .overlay(alignment: .bottom) {
-            Rectangle()
-                .fill(Color.primary.opacity(0.07))
-                .frame(height: 0.5)
-        }
     }
 
     private var composer: some View {
@@ -266,8 +271,10 @@ struct ChatView: View {
             if isUser { Spacer(minLength: 42) }
             VStack(alignment: .leading, spacing: 9) {
                 if !message.text.isEmpty {
-                    Text(message.text).font(.system(size: 16))
+                    let rendered = (try? AttributedString(markdown: message.text, options: .init(interpretedSyntax: .full))) ?? AttributedString(message.text)
+                    Text(rendered).font(.system(size: 16))
                         .foregroundStyle(isUser ? Color.white : Color.primary)
+                        .lineSpacing(4)
                         .textSelection(.enabled)
                 }
                 ForEach(message.attachments) { attachment in
@@ -285,9 +292,36 @@ struct ChatView: View {
     @ViewBuilder
     private func attachmentView(_ item: ChatAttachment, isUser: Bool) -> some View {
         if item.type == "image", let data = Data(base64Encoded: item.base64), let image = UIImage(data: data) {
-            Image(uiImage: image).resizable().scaledToFit().frame(maxWidth: 240, maxHeight: 280)
-                .clipShape(RoundedRectangle(cornerRadius: 12))
+            VStack(alignment: .trailing, spacing: 7) {
+                Image(uiImage: image).resizable().scaledToFit().frame(maxWidth: 260, maxHeight: 320)
+                    .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
+                if let url = temporaryFileURL(item) {
+                    ShareLink(item: url) {
+                        Label("Поделиться", systemImage: "square.and.arrow.up")
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(isUser ? Color.white.opacity(0.9) : accent)
+                    }
+                }
+            }
         } else if item.type == "audio" {
+            VStack(alignment: .leading, spacing: 6) {
+                Button {
+                    playAudio(item)
+                } label: {
+                    Label(playingID == item.id ? "Воспроизводится…" : (item.title.isEmpty ? "Прослушать аудио" : item.title),
+                          systemImage: playingID == item.id ? "speaker.wave.2.fill" : "play.circle.fill")
+                        .font(.subheadline)
+                        .foregroundStyle(isUser ? .white : accent)
+                }
+                if !item.base64.isEmpty, let url = temporaryFileURL(item) {
+                    ShareLink(item: url) {
+                        Label("Поделиться аудио", systemImage: "square.and.arrow.up")
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(isUser ? Color.white.opacity(0.9) : accent)
+                    }
+                }
+            }
+        } else if item.type == "link" {
             Button {
                 playAudio(item)
             } label: {
@@ -350,7 +384,14 @@ struct ChatView: View {
         selectedFile = nil
         isSending = true
         errorMessage = nil
-        messages.append(ChatMessage(role: "user", text: text.isEmpty ? (file?.name ?? "") : text))
+        let localAttachments: [ChatAttachment] = {
+            guard let file else { return [] }
+            let isImage = file.mime.hasPrefix("image/")
+            return [ChatAttachment(type: isImage ? "image" : "file",
+                                   name: file.name, mime: file.mime,
+                                   base64: file.data.base64EncodedString(), url: "", title: file.name)]
+        }()
+        messages.append(ChatMessage(role: "user", text: text, attachments: localAttachments))
         var body: [String: Any] = ["text": text]
         if let file {
             body["file"] = ["name": file.name, "mime": file.mime, "b64": file.data.base64EncodedString()]
@@ -528,11 +569,6 @@ struct ChatView: View {
             }
             .padding().background(Color(red: 0.97, green: 0.96, blue: 0.94))
             .navigationTitle("Инструкция").navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("Готово") { showPromptSettings = false }
-                }
-            }
             .onAppear(perform: loadPrompt)
         }
     }
