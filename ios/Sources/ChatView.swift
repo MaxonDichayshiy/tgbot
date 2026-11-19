@@ -281,8 +281,8 @@ struct ChatView: View {
                     attachmentView(attachment, isUser: isUser)
                 }
             }
-            .padding(.horizontal, 15).padding(.vertical, 11)
-            .background(isUser ? accent : Color(uiColor: .secondarySystemGroupedBackground))
+            .padding(.horizontal, isUser ? 15 : 0).padding(.vertical, isUser ? 11 : 3)
+            .background(isUser ? accent : Color.clear)
             .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
             if !isUser { Spacer(minLength: 42) }
         }
@@ -319,6 +319,12 @@ struct ChatView: View {
                             .font(.caption.weight(.medium))
                             .foregroundStyle(isUser ? Color.white.opacity(0.9) : accent)
                     }
+                } else if let url = URL(string: item.url), !item.url.isEmpty {
+                    ShareLink(item: url) {
+                        Label("Поделиться ссылкой", systemImage: "square.and.arrow.up")
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(isUser ? Color.white.opacity(0.9) : accent)
+                    }
                 }
             }
         } else if item.type == "link" {
@@ -331,9 +337,16 @@ struct ChatView: View {
                     .foregroundStyle(isUser ? .white : accent)
             }
         } else if item.type == "link", let url = URL(string: item.url) {
-            Link(destination: url) {
-                Label(item.title.isEmpty ? "Открыть ссылку" : item.title, systemImage: "play.rectangle")
-                    .font(.subheadline).foregroundStyle(isUser ? .white : accent)
+            VStack(alignment: .leading, spacing: 6) {
+                Link(destination: url) {
+                    Label(item.title.isEmpty ? "Открыть ссылку" : item.title, systemImage: "play.rectangle")
+                        .font(.subheadline).foregroundStyle(isUser ? .white : accent)
+                }
+                ShareLink(item: url) {
+                    Label("Поделиться", systemImage: "square.and.arrow.up")
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(isUser ? Color.white.opacity(0.9) : accent)
+                }
             }
         } else if item.type == "file", let url = temporaryFileURL(item) {
             ShareLink(item: url) {
