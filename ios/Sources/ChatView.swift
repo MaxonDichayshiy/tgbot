@@ -486,34 +486,55 @@ struct ChatView: View {
         if isRecording {
             recording?.stop()
             isRecording = false
-            guard let url = recording?.url, let data = try? Data(contentsOf: url) else { return }
+            guard let url = recording?.url,
+                  let data = try? Data(contentsOf: url),
+                  !data.isEmpty else {
+                errorMessage = "Запись не получилась. Попробуй ещё раз."
+                return
+            }
             sendVoice(data)
             return
         }
-        AVAudioSession.sharedInstance().requestRecordPermission { granted in
+
+        errorMessage = nil
+        let permissionHandler: (Bool) -> Void = { granted in
             DispatchQueue.main.async {
                 guard granted else {
-                    errorMessage = "Разреши доступ к микрофону в настройках iPhone."
+                    errorMessage = "Нет доступа к микрофону. Разреши его в настройках iPhone."
                     return
                 }
                 do {
                     let session = AVAudioSession.sharedInstance()
                     try session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker])
                     try session.setActive(true)
-                    let url = FileManager.default.temporaryDirectory.appendingPathComponent("slopchik-voice-\(UUID().uuidString).m4a")
+
+                    let url = FileManager.default.temporaryDirectory
+                        .appendingPathComponent("slopchik-voice-\\(UUID().uuidString).m4a")
                     let settings: [String: Any] = [
                         AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
                         AVSampleRateKey: 44100,
                         AVNumberOfChannelsKey: 1,
                         AVEncoderAudioQualityKey: AVAudioQuality.medium.rawValue
                     ]
-                    recording = try AVAudioRecorder(url: url, settings: settings)
-                    recording?.record()
+                    let recorder = try AVAudioRecorder(url: url, settings: settings)
+                    guard recorder.prepareToRecord(), recorder.record() else {
+                        throw NSError(domain: "SlopchikAudio", code: 1,
+                                      userInfo: [NSLocalizedDescriptionKey: "iPhone не смог запустить запись."])
+                    }
+                    recording = recorder
                     isRecording = true
                 } catch {
-                    errorMessage = "Не удалось начать запись: \(error.localizedDescription)"
+                    recording = nil
+                    isRecording = false
+                    errorMessage = "Не удалось начать запись: \\(error.localizedDescription)"
                 }
             }
+        }
+
+        if #available(iOS 17.0, *) {
+            AVAudioApplication.requestRecordPermission(completionHandler: permissionHandler)
+        } else {
+            AVAudioSession.sharedInstance().requestRecordPermission(permissionHandler)
         }
     }
 
