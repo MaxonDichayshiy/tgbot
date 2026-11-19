@@ -4,8 +4,9 @@ import UniformTypeIdentifiers
 import AVFoundation
 import AVKit
 import Combine
+import CryptoKit
 
-private struct ChatAttachment: Identifiable {
+private struct ChatAttachment: Identifiable, Codable {
     let id = UUID()
     let type: String
     let name: String
@@ -15,7 +16,7 @@ private struct ChatAttachment: Identifiable {
     let title: String
 }
 
-private struct ChatMessage: Identifiable {
+private struct ChatMessage: Identifiable, Codable {
     let id = UUID()
     let role: String
     let text: String
@@ -85,6 +86,7 @@ struct ChatView: View {
                 .scrollDismissesKeyboard(.interactively)
                 .simultaneousGesture(TapGesture().onEnded { isComposerFocused = false })
                 .onChange(of: messages.count) { _ in
+                    saveLocalHistory()
                     if let last = messages.last {
                         withAnimation(.easeOut(duration: 0.2)) {
                             proxy.scrollTo(last.id, anchor: .bottom)
@@ -137,7 +139,7 @@ struct ChatView: View {
                 }
             }
         }
-        .onAppear(perform: loadHistory)
+        .onAppear(perform: loadLocalHistory)
         .onReceive(Timer.publish(every: 0.25, on: .main, in: .common).autoconnect()) { _ in
             updatePlaybackProgress()
         }
@@ -368,30 +370,46 @@ struct ChatView: View {
         return request
     }
 
-    private func loadHistory() {
-        guard let url = URL(string: "\(apiBase)/api/history") else { return }
-        var request = authorizedRequest(url)
-        request.timeoutInterval = 30
-        URLSession.shared.dataTask(with: request) { data, response, error in
-            DispatchQueue.main.async {
-                isLoading = false
-                if let error {
-                    errorMessage = "Не удалось загрузить историю: \(error.localizedDescription)"
-                    return
-                }
-                guard let data, let http = response as? HTTPURLResponse, http.statusCode == 200,
-                      let result = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                      let items = result["messages"] as? [[String: Any]] else {
-                    errorMessage = "Не удалось получить историю. Попробуйте перезапустить приложение."
-                    return
-                }
-                messages = items.compactMap { item in
-                    guard let role = item["role"] as? String,
-                          let text = item["text"] as? String, !text.isEmpty else { return nil }
-                    return ChatMessage(role: role, text: text)
-                }
+    // История хранится только в Application Support на этом iPhone.
+    // Имя файла привязано к аккаунту, чтобы разные пользователи не смешивали переписки.
+    private var localHistoryURL: URL {
+        let digest = SHA256.hash(data: Data(token.utf8))
+        let fileName = digest.map { String(format: "%02x", $0) }.joined() + ".json"
+        let directory = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("Slopchik", isDirectory: true)
+        return directory.appendingPathComponent(fileName)
+    }
+
+    private func loadLocalHistory() {
+        isLoading = true
+        defer { isLoading = false }
+        do {
+            let url = localHistoryURL
+            guard FileManager.default.fileExists(atPath: url.path) else {
+                messages = []
+                return
             }
-        }.resume()
+            let data = try Data(contentsOf: url)
+            messages = try JSONDecoder().decode([ChatMessage].self, from: data)
+        } catch {
+            messages = []
+            errorMessage = "Не удалось открыть локальную историю. Новые сообщения будут сохранены."
+        }
+    }
+
+    private func saveLocalHistory() {
+        guard !isLoading else { return }
+        do {
+            let url = localHistoryURL
+            try FileManager.default.createDirectory(
+                at: url.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            let data = try JSONEncoder().encode(Array(messages.suffix(300)))
+            try data.write(to: url, options: .atomic)
+        } catch {
+            errorMessage = "Не удалось сохранить переписку на устройстве: \(error.localizedDescription)"
+        }
     }
 
     private func sendMessage() {
