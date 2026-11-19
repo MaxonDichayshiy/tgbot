@@ -187,8 +187,10 @@ struct ChatView: View {
                         Label("О создателе", systemImage: "person.crop.circle")
                     }
                     Divider()
-                    Text("Слопчик · версия \\(appVersion) (сборка \\(appBuild))")
+                    Text("Слопчик • версия \\(appVersion) • сборка \\(appBuild)")
                         .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
                     Menu {
                         Button { themeRaw = SlopThemeMode.light.rawValue } label: {
                             Label("Светлая", systemImage: themeRaw == "light" ? "checkmark.circle.fill" : "sun.max")
@@ -265,16 +267,22 @@ struct ChatView: View {
         VStack(spacing: 0) {
             HStack(alignment: .bottom, spacing: 8) {
             Menu {
-                Button { showPhotoPicker = true } label: {
-                    Label("Выбрать фото", systemImage: "photo")
-                }
-                Button { showFilePicker = true } label: {
-                    Label("Выбрать документ", systemImage: "doc")
+                Section("Вложения") {
+                    Button { showPhotoPicker = true } label: {
+                        Label("Фото и изображения", systemImage: "photo.on.rectangle")
+                    }
+                    Button { showFilePicker = true } label: {
+                        Label("Файл или документ", systemImage: "doc")
+                    }
                 }
             } label: {
-                Image(systemName: "plus").font(.system(size: 19, weight: .semibold))
-                    .frame(width: 42, height: 46).foregroundStyle(accent)
+                Image(systemName: "plus")
+                    .font(.system(size: 19, weight: .semibold))
+                    .frame(width: 42, height: 46)
+                    .foregroundStyle(accent)
+                    .contentShape(Rectangle())
             }
+            .accessibilityLabel("Добавить вложение")
             TextField("Сообщение…", text: $draft, axis: .vertical)
                 .focused($isComposerFocused)
                 .submitLabel(.send)
