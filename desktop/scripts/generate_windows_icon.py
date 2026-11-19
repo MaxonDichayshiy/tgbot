@@ -5,7 +5,7 @@ import sys
 VARIANTS = {"lime", "lime-invert", "purple", "orange", "pink", "blue", "teal", "rainbow"}
 variant = sys.argv[1] if len(sys.argv) > 1 else "lime"
 if variant not in VARIANTS:
-    raise SystemExit(f"Unknown icon variant: {variant}. Choose one of: {
+    raise SystemExit("Unknown icon variant: " + variant + ". Choose one of: " + ", ".join(sorted(VARIANTS)))
 ROOT = Path(__file__).resolve().parents[2]
 SOURCE = ROOT / "Brand book" / "icons" / variant / "square-1024.png"
 OUTPUT = ROOT / "desktop" / "src-tauri" / "icons" / "icon.ico"
