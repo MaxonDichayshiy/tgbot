@@ -32,6 +32,9 @@ struct ChatView: View {
     @State private var isLoading = true
     @State private var errorMessage: String?
     @State private var showIconSettings = false
+    @State private var showLegalInfo = false
+    @State private var showCreatorInfo = false
+    @FocusState private var isComposerFocused: Bool
     @State private var showPromptSettings = false
     @State private var showFilePicker = false
     @State private var selectedPhoto: PhotosPickerItem?
@@ -68,6 +71,8 @@ struct ChatView: View {
                     }
                     .padding(.horizontal, 14).padding(.vertical, 18)
                 }
+                .scrollDismissesKeyboard(.interactively)
+                .simultaneousGesture(TapGesture().onEnded { isComposerFocused = false })
                 .onChange(of: messages.count) { _ in
                     if let last = messages.last {
                         withAnimation(.easeOut(duration: 0.2)) {
@@ -93,6 +98,8 @@ struct ChatView: View {
         .background(Color(red: 0.97, green: 0.96, blue: 0.94))
         .sheet(isPresented: $showIconSettings) { IconSettingsView() }
         .sheet(isPresented: $showPromptSettings) { promptSheet }
+        .sheet(isPresented: $showLegalInfo) { LegalInfoView() }
+        .sheet(isPresented: $showCreatorInfo) { CreatorInfoView() }
         .fileImporter(isPresented: $showFilePicker, allowedContentTypes: [.item], allowsMultipleSelection: false, onCompletion: handleFileImport)
         .onChange(of: selectedPhoto) { item in
             guard let item else { return }
@@ -144,6 +151,12 @@ struct ChatView: View {
                 Button { showIconSettings = true } label: {
                     Label("Иконка приложения", systemImage: "app")
                 }
+                Button { showLegalInfo = true } label: {
+                    Label("Правовой уголок", systemImage: "doc.text")
+                }
+                Button { showCreatorInfo = true } label: {
+                    Label("О создателе", systemImage: "person.crop.circle")
+                }
                 Divider()
                 Button("Выйти", role: .destructive, action: onLogout)
             } label: {
@@ -155,7 +168,17 @@ struct ChatView: View {
     }
 
     private var composer: some View {
-        HStack(alignment: .bottom, spacing: 8) {
+        VStack(spacing: 0) {
+            if isComposerFocused {
+                HStack {
+                    Spacer()
+                    Button("Готово") { isComposerFocused = false }
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(accent)
+                        .padding(.horizontal, 16).padding(.top, 5).padding(.bottom, 2)
+                }
+            }
+            HStack(alignment: .bottom, spacing: 8) {
             Menu {
                 PhotosPicker(selection: $selectedPhoto, matching: .images) {
                     Label("Выбрать фото", systemImage: "photo")
@@ -168,6 +191,8 @@ struct ChatView: View {
                     .frame(width: 42, height: 46).foregroundStyle(accent)
             }
             TextField("Сообщение…", text: $draft, axis: .vertical)
+                .focused($isComposerFocused)
+                .submitLabel(.send)
                 .lineLimit(1...5).padding(.horizontal, 15).padding(.vertical, 12)
                 .background(Color.white).clipShape(RoundedRectangle(cornerRadius: 22))
                 .disabled(isSending || isRecording)
@@ -191,8 +216,9 @@ struct ChatView: View {
                 }
                 .disabled(isSending)
             }
+            }
+            .padding(.horizontal, 10).padding(.vertical, 10)
         }
-        .padding(.horizontal, 10).padding(.vertical, 10)
         .background(Color(red: 0.97, green: 0.96, blue: 0.94))
     }
 
