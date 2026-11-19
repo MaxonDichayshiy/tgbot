@@ -113,7 +113,7 @@ struct ChatView: View {
         return HStack {
             if isUser { Spacer(minLength: 48) }
             Text(message.text).font(.system(size: 16))
-                .foregroundStyle(isUser ? .white : .primary)
+                .foregroundStyle(isUser ? Color.white : Color.primary)
                 .padding(.horizontal, 15).padding(.vertical, 11)
                 .background(isUser ? Color(red: 0.30, green: 0.48, blue: 0.92) : .white)
                 .clipShape(RoundedRectangle(cornerRadius: 18))
