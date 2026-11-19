@@ -430,6 +430,15 @@ def mount(app: web.Application, c):
     async def desktop_index(request):
         return web.FileResponse(DESKTOP_DIR / "index.html", headers={"Cache-Control": "no-cache"})
 
+    async def desktop_asset(request):
+        name = request.match_info["name"]
+        path = (DESKTOP_DIR / "assets" / name).resolve()
+        if not re.fullmatch(r"icon-(lime|lime-invert|purple|orange|pink|blue|teal|rainbow)\\.svg", name):
+            raise web.HTTPNotFound()
+        if (DESKTOP_DIR / "assets").resolve() not in path.parents or not path.is_file():
+            raise web.HTTPNotFound()
+        return web.FileResponse(path, headers={"Cache-Control": "public, max-age=86400"})
+
     async def sw(request):
         return web.FileResponse(APP_DIR / "sw.js", headers={"Cache-Control": "no-cache", "Content-Type": "application/javascript"})
 
