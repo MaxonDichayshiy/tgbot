@@ -352,7 +352,7 @@ def mount(app: web.Application, c):
             if not u or not c.allowed(int(u["id"])):
                 return web.json_response({"error": "Нет доступа"}, status=403)
             name = u.get("first_name") or u.get("username") or "Telegram"
-            return web.json_response({"token": make_token(c, int(u["id"]), name), "name": name, "mode": "telegram"})
+            return web.json_response({"token": make_token(c, int(u["id"]), name), "name": name, "user_id": str(int(u["id"])), "mode": "telegram"})
         code = str(body.get("code", "")).strip()
         if code:
             digest = hashlib.sha256(code.encode()).hexdigest()
@@ -362,7 +362,7 @@ def mount(app: web.Application, c):
                 _APP_LOGIN_CODES.pop(digest, None)
                 uid, name, _ = entry
                 if c.allowed(uid):
-                    return web.json_response({"token": make_token(c, uid, name), "name": name, "mode": "telegram"})
+                    return web.json_response({"token": make_token(c, uid, name), "name": name, "user_id": str(int(uid)), "mode": "telegram"})
         await asyncio.sleep(0.8)
         return web.json_response({"error": "Код неверный или уже истёк. Запросите новый в Telegram через /app."}, status=403)
 
