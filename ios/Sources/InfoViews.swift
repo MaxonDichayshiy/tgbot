@@ -33,7 +33,7 @@ struct LegalInfoView: View {
                 }
                 .padding(20)
             }
-            .background(Color(red: 0.97, green: 0.96, blue: 0.94))
+            .background(Color(uiColor: .systemGroupedBackground))
             .navigationTitle("Правовой уголок")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -55,7 +55,7 @@ struct LegalInfoView: View {
 
 struct CreatorInfoView: View {
     @Environment(\.dismiss) private var dismiss
-    private let accent = Color(red: 0.86, green: 0.36, blue: 0.16)
+    private let accent = SlopTheme.accent
 
     var body: some View {
         NavigationStack {
@@ -75,7 +75,7 @@ struct CreatorInfoView: View {
                     Label("Написать в Telegram", systemImage: "paperplane.fill")
                         .font(.headline).foregroundStyle(.white)
                         .padding(.horizontal, 22).padding(.vertical, 13)
-                        .background(accent).clipShape(Capsule())
+                        .background(accent).clipShape(Capsule()).slopGlass(cornerRadius: 24)
                 }
                 Spacer()
             }
