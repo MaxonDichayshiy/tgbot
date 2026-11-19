@@ -18,11 +18,14 @@ targets:
     sources:
       - Sources
       - Assets.xcassets
-    resources:
       - path: Resources/SlopchikHappy.png
+        buildPhase: resources
       - path: Resources/SlopchikWink.png
+        buildPhase: resources
       - path: Resources/SlopchikSleepy.png
+        buildPhase: resources
       - path: Resources/SlopchikLove.png
+        buildPhase: resources
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: ru.maxondichayshiy.slopchik
