@@ -21,8 +21,10 @@ struct IconSettingsView: View {
     @State private var selectedIcon: String?
     @State private var isChanging = false
     @State private var errorMessage: String?
+    @AppStorage("slopchik.theme") private var themeRaw = SlopThemeMode.system.rawValue
 
     private let columns = [GridItem(.flexible(), spacing: 14), GridItem(.flexible(), spacing: 14)]
+    private let accent = SlopTheme.accent
 
     var body: some View {
         NavigationStack {
@@ -52,14 +54,14 @@ struct IconSettingsView: View {
                 }
                 .padding(18)
             }
-            .background(Color(red: 0.97, green: 0.96, blue: 0.94))
+            .background(Color(uiColor: .systemGroupedBackground))
             .navigationTitle("Иконка приложения")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Готово") { dismiss() }
                         .fontWeight(.semibold)
-                        .tint(Color(red: 0.86, green: 0.36, blue: 0.16))
+                        .tint(SlopTheme.accent)
                 }
             }
             .onAppear {
@@ -103,7 +105,8 @@ struct IconSettingsView: View {
             }
             .padding(10)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(.white)
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .slopGlass(cornerRadius: 20)
             .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
         }
         .buttonStyle(.plain)
