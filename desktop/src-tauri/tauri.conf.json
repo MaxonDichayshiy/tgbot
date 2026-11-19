@@ -43,7 +43,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "RWRgMWOxNwe7XoNN6l2iTpSvNAdOqBKzJZiM0pr8Xr6VtyOl4JQzUUqF",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDVFQkIwNzM3QjE2MzMxNjAKUldSZ01XT3hOd2U3WG9OTjZsMmlUcFN2TkFkT3FCS3pKWmlNMHByOFhyNlZ0eU9sNEpRelVVcUY=",
       "endpoints": [
         "https://github.com/MaxonDichayshiy/tgbot/releases/latest/download/latest.json"
       ],
