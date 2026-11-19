@@ -307,10 +307,10 @@ struct ChatView: View {
             Button(action: resetChat) {
                 Image(systemName: "square.and.pencil")
                     .font(.system(size: 17, weight: .semibold))
-                    .foregroundStyle(.primary)
+                    .foregroundStyle(colorScheme == .dark ? Color.white : SlopTheme.ink)
                     .frame(width: 42, height: 42)
-                    .background(SlopTheme.controlSurface, in: Circle())
-                    .overlay(Circle().stroke(SlopTheme.subtleBorder, lineWidth: 0.8))
+                    .background(colorScheme == .dark ? Color.white.opacity(0.13) : SlopTheme.ink.opacity(0.055), in: Circle())
+                    .overlay(Circle().stroke(colorScheme == .dark ? Color.white.opacity(0.24) : SlopTheme.ink.opacity(0.14), lineWidth: 1))
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Новый диалог")
