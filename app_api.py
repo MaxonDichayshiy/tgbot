@@ -461,6 +461,7 @@ def mount(app: web.Application, c):
     app.router.add_get("/desktop/assets/{name}", desktop_asset)
     app.router.add_get("/app", lambda r: web.HTTPFound("/app/"))
     app.router.add_get("/app/", index)
+    app.router.add_get("/app/desktop-assets/{name}", desktop_asset)
     app.router.add_get("/app/sw.js", sw)
     app.router.add_get("/app/manifest.webmanifest", manifest)
     ALLOWED_STATIC = re.compile(r"^[\w\-]+\.(png|ico|svg|webmanifest|js|css|html)$")
