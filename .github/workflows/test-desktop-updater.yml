@@ -2,6 +2,12 @@ name: Test Slopchik Desktop Updater
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - desktop-app
+    paths:
+      - "desktop/src-tauri/**"
+      - ".github/workflows/test-desktop-updater.yml"
 
 permissions:
   contents: read
