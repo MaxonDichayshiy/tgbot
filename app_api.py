@@ -425,7 +425,12 @@ def mount(app: web.Application, c):
         return web.json_response({"ok": True, "text": t})
 
     async def index(request):
-        return web.FileResponse(APP_DIR / "index.html", headers={"Cache-Control": "no-cache"})
+        # Один адрес PWA: desktop shell на компьютерах, iOS/mobile shell на телефонах.
+        # Vary обязателен, потому что HTML по одному URL зависит от User-Agent.
+        user_agent = request.headers.get("User-Agent", "")
+        mobile = re.search(r"iPhone|iPad|iPod|Android|Mobile|Windows Phone", user_agent, re.I)
+        page = APP_DIR / "index.html" if mobile else DESKTOP_DIR / "index.html"
+        return web.FileResponse(page, headers={"Cache-Control": "no-cache", "Vary": "User-Agent"})
 
     async def desktop_index(request):
         return web.FileResponse(DESKTOP_DIR / "index.html", headers={"Cache-Control": "no-cache"})
@@ -456,6 +461,7 @@ def mount(app: web.Application, c):
     app.router.add_get("/desktop/assets/{name}", desktop_asset)
     app.router.add_get("/app", lambda r: web.HTTPFound("/app/"))
     app.router.add_get("/app/", index)
+    app.router.add_get("/app/desktop-assets/{name}", desktop_asset)
     app.router.add_get("/app/sw.js", sw)
     app.router.add_get("/app/manifest.webmanifest", manifest)
     ALLOWED_STATIC = re.compile(r"^[\w\-]+\.(png|ico|svg|webmanifest|js|css|html)$")
