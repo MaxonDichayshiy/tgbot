@@ -171,7 +171,7 @@ async function downscale(f) { // фото с камеры бывают огро�
   } catch (_) { return f; }
 }
 $("attach").onclick = () => $("file").click();
-$("file").onchange = async () => { const f = $("file").files[0]; if (!f) return; if (f.size > 25e6) { alert("Файл слишком большой"); return; } pending = await downscale(f); $("chipname").textContent = "📎 " + pending.name; $("chip").classList.add("on"); $("file").value = ""; };
+$("file").onchange = async () => { const f = $("file").files[0]; if (!f) return; if (f.size > 9e6) { alert("Файл слишком большой (до 9 МБ)"); return; } pending = await downscale(f); $("chipname").textContent = "📎 " + pending.name; $("chip").classList.add("on"); $("file").value = ""; };
 $("chipx").onclick = () => { pending = null; $("chip").classList.remove("on"); };
 
 async function send(text, voiceBlob) {
@@ -195,6 +195,7 @@ async function send(text, voiceBlob) {
 }
 $("form").addEventListener("submit", (e) => { e.preventDefault(); const t = textEl.value.trim(); if (!t && !pending) return; textEl.value = ""; textEl.style.height = "auto"; send(t); });
 textEl.addEventListener("input", () => { textEl.style.height = "auto"; textEl.style.height = Math.min(textEl.scrollHeight, 130) + "px"; });
+textEl.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); $("form").requestSubmit(); } });
 
 $("mic").onclick = async () => {
   if (rec) { rec.stop(); return; }
