@@ -1,5 +1,5 @@
 // Минимальный service worker: оболочка приложения открывается мгновенно, запросы к /api всегда идут в сеть.
-const CACHE = "slopchik-v1";
+const CACHE = "slopchik-v2";
 const SHELL = ["/app/", "/app/manifest.webmanifest", "/app/icon-192.png", "/app/icon-512.png", "/app/apple-touch-icon.png"];
 self.addEventListener("install", (e) => { e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting())); });
 self.addEventListener("activate", (e) => {
