@@ -9,6 +9,7 @@
     "frontendDist": "../ui"
   },
   "app": {
+    "withGlobalTauri": true,
     "windows": [
       {
         "title": "Слопчик",
@@ -21,7 +22,6 @@
       }
     ],
     "security": {
-      "withGlobalTauri": true,
       "capabilities": [
         "desktop-remote"
       ]
