@@ -4,5 +4,5 @@
   "description": "Permissions for the hosted Slopchik desktop client",
   "windows": ["main"],
   "remote": { "urls": ["https://tgbot-naew.onrender.com/*"] },
-  "permissions": ["core:default"]
+  "permissions": ["core:default", "core:window:allow-close", "core:window:allow-minimize", "core:window:allow-toggle-maximize"]
 }
