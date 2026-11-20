@@ -20,6 +20,7 @@ on:
   push:
     paths:
       - "desktop/src-tauri/**"
+      - "desktop/index.html"
       - "desktop/scripts/**"
       - "Brand book/icons/lime/square-1024.png"
       - ".github/workflows/build-desktop.yml"
