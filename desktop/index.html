@@ -82,5 +82,6 @@ $("logout").onclick=()=>logout(false);
 const tauriWindow=window.__TAURI__?.window?.getCurrentWindow?.();
 if(tauriWindow){$("winClose").onclick=()=>tauriWindow.close();$("winMinimize").onclick=()=>tauriWindow.minimize();$("winMaximize").onclick=()=>tauriWindow.toggleMaximize();document.querySelector("#titlebar [data-tauri-drag-region]").addEventListener("dblclick",()=>tauriWindow.toggleMaximize())}else{$("windowControls").style.display="none"}
 document.querySelectorAll("[data-prompt]").forEach(b=>b.onclick=()=>{input.value=b.dataset.prompt;input.focus();input.setSelectionRange(input.value.length,input.value.length)});
+if ("serviceWorker" in navigator) navigator.serviceWorker.register("/app/sw.js", { scope: "/app/" }).catch(() => {});
 start();
 </script></body></html>
